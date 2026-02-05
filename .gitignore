@@ -1,22 +1,43 @@
-venv/
-env*
-build/
-*.pyc
-*.egg-info/
-dist/
-settings.cfg
-*.log*
-otterwiki/__pycache__
-repository
+# Binaries
+gopherwiki
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.html
+
+# Go workspace file
+go.work
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# App data
+app-data/
+repository/
 *.sqlite
-.coverage
-coverage_html
-app-data*
-settings*.cfg
-tmp
-docker-compose.override.yml
+*.db
+
+# Environment
 .env
-.flaskenv
-.tox
-.idea
-otterwiki*.tgz
+.envrc
+
+# Docker
+docker-compose.override.yml
+
+# Logs
+*.log

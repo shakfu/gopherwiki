@@ -15,19 +15,19 @@
 {{end}}
 
 {{define "editor_navbar_editor"}}
-<button onclick="otterwiki_editor.undo()" class="btn btn-editor btn-xs ml-10" title="Undo"><i class="fas fa-undo"></i></button>
-<button onclick="otterwiki_editor.redo()" class="btn btn-editor btn-xs" style="margin-left: 0.1rem;" title="Redo"><i class="fas fa-redo"></i></button>
-<button onclick="otterwiki_editor.bold()" class="btn btn-editor btn-xs ml-5 hidden-sm-and-down" title="Bold"><i class="fa fa-bold"></i></button>
-<button onclick="otterwiki_editor.italic()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Italic"><i class="fa fa-italic"></i></button>
-<button onclick="otterwiki_editor.header()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Header"><i class="fa fa-heading"></i></button>
-<button onclick="otterwiki_editor.link()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Link"><i class="fa fa-link"></i></button>
+<button onclick="gopherwiki_editor.undo()" class="btn btn-editor btn-xs ml-10" title="Undo"><i class="fas fa-undo"></i></button>
+<button onclick="gopherwiki_editor.redo()" class="btn btn-editor btn-xs" style="margin-left: 0.1rem;" title="Redo"><i class="fas fa-redo"></i></button>
+<button onclick="gopherwiki_editor.bold()" class="btn btn-editor btn-xs ml-5 hidden-sm-and-down" title="Bold"><i class="fa fa-bold"></i></button>
+<button onclick="gopherwiki_editor.italic()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Italic"><i class="fa fa-italic"></i></button>
+<button onclick="gopherwiki_editor.header()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Header"><i class="fa fa-heading"></i></button>
+<button onclick="gopherwiki_editor.link()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Link"><i class="fa fa-link"></i></button>
 {{end}}
 
 {{define "editor_bodytop"}}
 <div class="modal" id="modal-commit" tabindex="-1" role="dialog">
   <div class="modal-dialog" role="document">
     <div class="modal-content">
-      <a href="#" class="close" onclick="otterwiki.toggleModal('modal-commit')" role="button" aria-label="Close">
+      <a href="#" class="close" onclick="gopherwiki.toggleModal('modal-commit')" role="button" aria-label="Close">
         <span aria-hidden="true">&times;</span>
       </a>
       <h5 class="modal-title">Save {{.pagename}}</h5>
@@ -55,7 +55,7 @@
 
 {{define "editor_navbar"}}
 <a href="/{{.pagepath}}" class="btn btn-danger mr-5" role="button" title="Cancel"><i class="fas fa-window-close"></i></a>
-<button id="save-page-btn" class="btn btn-success mr-5" onclick="otterwiki.toggleModal('modal-commit')" title="Save"><i class="fas fa-save"></i></button>
+<button id="save-page-btn" class="btn btn-success mr-5" onclick="gopherwiki.toggleModal('modal-commit')" title="Save"><i class="fas fa-save"></i></button>
 <button id="preview_btn" class="btn btn-primary" style="width: 1rem;" title="Preview"><i class="far fa-eye"></i></button>
 <button id="editor_btn" class="btn btn-primary" style="width: 1rem; display:none;" title="Edit"><i class="fas fa-pencil-alt"></i></button>
 {{end}}
@@ -95,7 +95,7 @@
     const cm_editor = CodeMirror.fromTextArea(document.getElementById("content_editor"), {
         mode: 'markdown',
         lineNumbers: true,
-        theme: "otterwiki",
+        theme: "gopherwiki",
         lineWrapping: true,
         indentWithTabs: false,
         spellcheck: true,

@@ -14,14 +14,12 @@
 {{if .query}}
 <h2>Results for "{{.query}}"</h2>
 {{if .keys}}
-<div class="list-group">
+<div class="search-results">
     {{range .keys}}
-    <a href="/{{index . 2}}" class="list-group-item list-group-item-action">
-        <div class="d-flex w-100 justify-content-between">
-            <h5 class="mb-1">{{index . 3}}</h5>
-            <small class="badge badge-primary">{{index . 1}} {{pluralize (index . 1) "match" "matches"}}</small>
-        </div>
-        <small class="text-muted">/{{index . 2}}</small>
+    <a href="/{{index . 2}}" class="search-result-item">
+        <span class="search-result-title">{{index . 3}}</span>
+        <span class="search-result-badge">{{index . 1}} {{pluralize (index . 1) "match" "matches"}}</span>
+        <span class="search-result-path">/{{index . 2}}</span>
     </a>
     {{end}}
 </div>

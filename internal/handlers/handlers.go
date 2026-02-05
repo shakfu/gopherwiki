@@ -34,6 +34,7 @@ type Server struct {
 	DB                *db.Database
 	Renderer          *renderer.Renderer
 	Templates         *template.Template
+	TemplateMap       map[string]*template.Template
 	Version           string
 	Auth              *auth.Auth
 	SessionManager    *middleware.SessionManager
@@ -62,34 +63,98 @@ func NewServer(cfg *config.Config, store storage.Storage, database *db.Database,
 }
 
 // LoadTemplates loads templates from the given directory.
+// Each page template is parsed separately with base.html to avoid conflicts.
 func (s *Server) LoadTemplates(templatesDir string) error {
 	funcMap := s.templateFuncs()
 
-	pattern := filepath.Join(templatesDir, "*.html")
-	log.Printf("Loading templates from: %s", pattern)
+	log.Printf("Loading templates from: %s", templatesDir)
 
-	tmpl, err := template.New("").Funcs(funcMap).ParseGlob(pattern)
+	// Read shared template files
+	baseContent, err := os.ReadFile(filepath.Join(templatesDir, "base.html"))
 	if err != nil {
-		log.Printf("Error parsing templates: %v", err)
-		return err
+		return fmt.Errorf("failed to read base.html: %w", err)
 	}
-	if tmpl == nil {
-		return fmt.Errorf("no templates found at %s", pattern)
+	editorContent, err := os.ReadFile(filepath.Join(templatesDir, "editor.html"))
+	if err != nil {
+		return fmt.Errorf("failed to read editor.html: %w", err)
 	}
-
-	// Parse snippets subdirectory if it exists
-	snippetsPattern := filepath.Join(templatesDir, "snippets", "*.html")
-	if snippetTmpl, err := tmpl.ParseGlob(snippetsPattern); err == nil && snippetTmpl != nil {
-		tmpl = snippetTmpl
+	pageContent, err := os.ReadFile(filepath.Join(templatesDir, "page.html"))
+	if err != nil {
+		return fmt.Errorf("failed to read page.html: %w", err)
 	}
 
-	// Debug: print all loaded templates
+	// Find all template files
+	pattern := filepath.Join(templatesDir, "*.html")
+	files, err := filepath.Glob(pattern)
+	if err != nil {
+		return fmt.Errorf("failed to glob templates: %w", err)
+	}
+
+	// Create a map to store each page's template set
+	s.TemplateMap = make(map[string]*template.Template)
+
 	log.Printf("Loaded templates:")
-	for _, t := range tmpl.Templates() {
-		log.Printf("  - %s", t.Name())
+	for _, file := range files {
+		name := filepath.Base(file)
+		// Skip shared templates
+		if name == "base.html" || name == "editor.html" || name == "page.html" {
+			continue
+		}
+
+		// Create a new template set for each page
+		tmpl := template.New("base").Funcs(funcMap)
+
+		// Parse base.html
+		tmpl, err = tmpl.Parse(string(baseContent))
+		if err != nil {
+			return fmt.Errorf("failed to parse base.html for %s: %w", name, err)
+		}
+
+		// Parse editor.html (for editor_* defines)
+		tmpl, err = tmpl.Parse(string(editorContent))
+		if err != nil {
+			return fmt.Errorf("failed to parse editor.html for %s: %w", name, err)
+		}
+
+		// Parse page.html (for page_* defines)
+		tmpl, err = tmpl.Parse(string(pageContent))
+		if err != nil {
+			return fmt.Errorf("failed to parse page.html for %s: %w", name, err)
+		}
+
+		// Parse the specific page template (will override generic_content if defined)
+		specificContent, err := os.ReadFile(file)
+		if err != nil {
+			return fmt.Errorf("failed to read %s: %w", name, err)
+		}
+		tmpl, err = tmpl.Parse(string(specificContent))
+		if err != nil {
+			return fmt.Errorf("failed to parse %s: %w", name, err)
+		}
+
+		s.TemplateMap[name] = tmpl
+		log.Printf("  - %s", name)
 	}
 
-	s.Templates = tmpl
+	// Also add editor.html and page.html to the map
+	// They need themselves + base + an empty generic_content
+	emptyGeneric := `{{define "generic_content"}}{{end}}`
+	for _, shared := range []struct {
+		name    string
+		content []byte
+	}{
+		{"editor.html", editorContent},
+		{"page.html", pageContent},
+	} {
+		tmpl := template.New("base").Funcs(funcMap)
+		tmpl, _ = tmpl.Parse(string(baseContent))
+		tmpl, _ = tmpl.Parse(string(editorContent))
+		tmpl, _ = tmpl.Parse(string(pageContent))
+		tmpl, _ = tmpl.Parse(emptyGeneric)
+		s.TemplateMap[shared.name] = tmpl
+		log.Printf("  - %s", shared.name)
+	}
+
 	return nil
 }
 
@@ -238,8 +303,16 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name str
 		data["flashes"] = flashes
 	}
 
-	// Execute the base template with the specific template's defines
-	if err := s.Templates.ExecuteTemplate(w, "base", data); err != nil {
+	// Get the template for this page
+	tmpl, ok := s.TemplateMap[name]
+	if !ok {
+		log.Printf("Template not found: %s", name)
+		http.Error(w, "Template not found: "+name, http.StatusInternalServerError)
+		return
+	}
+
+	// Execute the base template
+	if err := tmpl.ExecuteTemplate(w, "base", data); err != nil {
 		log.Printf("Template error: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}

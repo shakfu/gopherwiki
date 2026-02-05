@@ -12,12 +12,13 @@
   <link rel="icon" href="/static/img/otter-favicon2.png">
   <title>{{if .title}}{{.title}} - {{end}}{{if .config}}{{.config.SiteName}}{{else}}GopherWiki{{end}}</title>
   <link href="/static/css/halfmoon.min.css" rel="stylesheet" media="screen" />
-  <link href="/static/css/otterwiki.css" rel="stylesheet" media="screen" />
+  <link href="/static/css/gopherwiki.css" rel="stylesheet" media="screen" />
   <link href="/static/css/print.css" rel="stylesheet" media="print" />
   <link rel="stylesheet" href="/static/css/fontawesome-all.min.css">
   <link href="/static/css/pygments.css" rel="stylesheet" media="screen"/>
   <link href="/static/css/roboto.css" rel="stylesheet"/>
   {{if .templateType}}{{if eq .templateType "page"}}{{template "page_head" .}}{{end}}{{end}}
+  {{if .templateType}}{{if eq .templateType "editor"}}{{template "editor_head" .}}{{end}}{{end}}
 </head>
 <body class="with-custom-webkit-scrollbars with-custom-css-scrollbars">
 {{if .templateType}}{{if eq .templateType "editor"}}{{template "editor_bodytop" .}}{{end}}{{end}}
@@ -148,7 +149,7 @@
     </div>
 
   <script src="/static/js/halfmoon.js"></script>
-  <script src="/static/js/otterwiki.js" type="text/javascript" charset="utf-8"></script>
+  <script src="/static/js/gopherwiki.js" type="text/javascript" charset="utf-8"></script>
   {{if .templateType}}
     {{if eq .templateType "page"}}{{template "page_js" .}}{{end}}
     {{if eq .templateType "editor"}}{{template "editor_js" .}}{{end}}

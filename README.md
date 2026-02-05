@@ -1,65 +1,129 @@
-![](screenshot.png)
+# GopherWiki
 
-# An Otter Wiki
+GopherWiki is a wiki for collaborative content management. Content is stored in a Git repository, keeping track of all changes. [Markdown](https://daringfireball.net/projects/markdown) is used as the markup language.
 
-An Otter Wiki is Python-based software for collaborative content
-management, called a [wiki](https://en.wikipedia.org/wiki/Wiki). The
-content is stored in a git repository, which keeps track of all changes.
-[Markdown](https://daringfireball.net/projects/markdown) is used as
-Markup language. An Otter Wiki is written in [python](https://www.python.org/)
-using the microframework [Flask](http://flask.pocoo.org/).
-[halfmoon](https://www.gethalfmoon.com) is used as CSS framework
-and [CodeMirror](https://codemirror.net/) as editor.
-[Font Awesome Free](https://fontawesome.com/license/free) serves the icons.
+GopherWiki is written in [Go](https://go.dev/) using [Chi](https://github.com/go-chi/chi) for routing, [goldmark](https://github.com/yuin/goldmark) for Markdown rendering, and [go-git](https://github.com/go-git/go-git) for version control. It compiles to a single binary with embedded assets for easy deployment.
 
-## Notable Features
+This project is a Go translation of [An Otter Wiki](https://github.com/redimp/otterwiki), maintaining feature parity while leveraging Go's single-binary deployment advantage.
 
-- Minimalistic interface (with dark-mode)
-- Editor with markdown highlighting and support including tables
-- Customizable Sidebar: Menu and/or Page Index
-- Full changelog and page history
-- User authentication
-- Page Attachments
-- Extended Markdown: tables, footnotes, fancy blocks, alerts and mermaid diagrams
-- (experimental) Git http server: clone, pull and push the content of your wiki
-- A very cute Otter as logo (drawn by [Christy Presler](http://christypresler.com/) CC BY 3.0)
+## Features
 
-## Demo
-
-Check out the demo <https://demo.otterwiki.com>.
+- Minimalistic interface with dark mode
+- Markdown editor with syntax highlighting and table support
+- Customizable sidebar with menu and page index
+- Full changelog and page history with diff view
+- User authentication with configurable access control
+- Page attachments with image thumbnails
+- Extended Markdown: tables, footnotes, alerts, mermaid diagrams, syntax highlighting
+- Git HTTP server: clone, pull, and push wiki content
+- Draft autosave
+- RSS/Atom feeds
+- Single binary deployment
 
 ## Installation
 
-Read the [installation guide](https://otterwiki.com/Installation) to get
-started. Recommended is the installation with `docker-compose`.
+### Using Go
 
-### Quick start with docker-compose
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/gopherwiki.git
+cd gopherwiki
 
-1. Copy and edit the `docker-compose.yml` below to match your preferences.
-2. Run `docker-compose up -d`
-3. Access the wiki via http://127.0.0.1:8080 if run on your machine.
-4. If the wiki shall be accessible via the internet and an domain name make sure to configure your web server accordingly. Check the [installation guide](https://otterwiki.com/Installation#reverse-proxy) for example configurations for nginx, apache and caddy.
-5. Register your account. The first account is an admin-account giving you access to the settings tab.
-6. Customize the settings to your liking.
+# Build
+make build
 
-Proceed for the [configuration guide](https://otterwiki.com/Configuration) for
-detailed information.
+# Set required environment variables and run
+export SECRET_KEY=$(openssl rand -hex 32)
+export REPOSITORY="./repository"
+./gopherwiki
+```
 
-#### docker-compose.yml
+Or run directly with `go run`:
+
+```bash
+SECRET_KEY="your-secret-key-at-least-16-chars" REPOSITORY="/tmp/wiki-repo" go run ./cmd/gopherwiki
+```
+
+The `REPOSITORY` directory will be initialized as a Git repository if it doesn't exist.
+
+### Using Docker
+
+```bash
+docker-compose up -d
+```
+
+Access the wiki at http://localhost:8080
+
+### docker-compose.yml
 
 ```yaml
 services:
-  otterwiki:
-    image: redimp/otterwiki:2
+  web:
+    build: .
     restart: unless-stopped
     ports:
-      - 8080:80
+      - "8080:8080"
     volumes:
       - ./app-data:/app-data
+    environment:
+      - SECRET_KEY=your-secure-random-key
+      - SITE_NAME=GopherWiki
+      - SITE_URL=http://localhost:8080
+      - READ_ACCESS=ANONYMOUS
+      - WRITE_ACCESS=REGISTERED
 ```
+
+## Configuration
+
+Configuration is done via environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SECRET_KEY` | (required) | Secret key for session encryption. Generate with `openssl rand -base64 32` |
+| `SITE_NAME` | GopherWiki | Name displayed in the header |
+| `SITE_URL` | http://localhost:8080 | Public URL for feeds and sitemap |
+| `HOME_PAGE` | Home | Default landing page |
+| `REPOSITORY` | ./repository | Path to Git repository |
+| `SQLALCHEMY_DATABASE_URI` | sqlite://gopherwiki.db | SQLite database path |
+| `READ_ACCESS` | ANONYMOUS | Who can read: ANONYMOUS, REGISTERED, or APPROVED |
+| `WRITE_ACCESS` | REGISTERED | Who can write: ANONYMOUS, REGISTERED, or APPROVED |
+| `ATTACHMENT_ACCESS` | REGISTERED | Who can upload: ANONYMOUS, REGISTERED, or APPROVED |
+| `AUTO_APPROVAL` | true | Auto-approve new registrations |
+| `DISABLE_REGISTRATION` | false | Disable new user registration |
+
+### Generating a Secret Key
+
+```bash
+# Using OpenSSL
+openssl rand -base64 32
+
+# Using Go
+go run -e 'import "crypto/rand"; import "encoding/base64"; b := make([]byte, 32); rand.Read(b); println(base64.StdEncoding.EncodeToString(b))'
+```
+
+## Development
+
+```bash
+# Run tests
+make test
+
+# Build
+make build
+
+# Run locally
+make run
+```
+
+## Technology Stack
+
+- **Web Framework**: [Chi](https://github.com/go-chi/chi) - lightweight, idiomatic router
+- **Markdown**: [goldmark](https://github.com/yuin/goldmark) - CommonMark compliant with extensions
+- **Syntax Highlighting**: [Chroma](https://github.com/alecthomas/chroma) - pure Go highlighter
+- **Git**: [go-git](https://github.com/go-git/go-git) - pure Go Git implementation
+- **Database**: SQLite via [go-sqlite3](https://github.com/mattn/go-sqlite3)
+- **Sessions**: [gorilla/sessions](https://github.com/gorilla/sessions)
+- **Templates**: Go html/template with embedded assets
 
 ## License
 
-An Otter Wiki is open-source software licensed under the [MIT License](https://github.com/redimp/otterwiki/blob/main/LICENSE).
-
-[modeline]: # ( vim: set fenc=utf-8 spell spl=en sts=4 et tw=72: )
+GopherWiki is open-source software licensed under the MIT License.
