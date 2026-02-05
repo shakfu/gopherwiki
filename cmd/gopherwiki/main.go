@@ -3,6 +3,8 @@ package main
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -10,12 +12,40 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/sa/gopherwiki/internal/auth"
 	"github.com/sa/gopherwiki/internal/config"
 	"github.com/sa/gopherwiki/internal/db"
 	"github.com/sa/gopherwiki/internal/handlers"
 	"github.com/sa/gopherwiki/internal/storage"
 )
+
+// InitConfig represents the initialization configuration from JSON.
+type InitConfig struct {
+	Site  *InitSite  `json:"site,omitempty"`
+	Admin *InitAdmin `json:"admin,omitempty"`
+	Issue *InitIssue `json:"issue,omitempty"`
+}
+
+// InitSite holds site branding settings.
+type InitSite struct {
+	Name string `json:"name,omitempty"`
+	Logo string `json:"logo,omitempty"`
+}
+
+// InitAdmin holds initial admin user settings.
+type InitAdmin struct {
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+// InitIssue holds issue tracker settings.
+type InitIssue struct {
+	Tags       []string `json:"tags,omitempty"`
+	Categories []string `json:"categories,omitempty"`
+}
 
 // Version is set at build time.
 var Version = "dev"
@@ -27,6 +57,7 @@ func main() {
 	templatesPath := flag.String("templates", "", "Path to templates directory")
 	staticPath := flag.String("static", "", "Path to static files directory")
 	dbPath := flag.String("db", "", "Path to SQLite database file")
+	initFile := flag.String("init", "", "Path to initialization JSON file (run once to set up site)")
 	flag.Parse()
 
 	// Load configuration
@@ -99,6 +130,13 @@ func main() {
 	// Run migrations
 	if err := database.Migrate(context.Background()); err != nil {
 		log.Fatalf("Failed to run migrations: %v", err)
+	}
+
+	// Process init file if provided
+	if *initFile != "" {
+		if err := processInitFile(*initFile, database, cfg); err != nil {
+			log.Fatalf("Failed to process init file: %v", err)
+		}
 	}
 
 	// Create server
@@ -214,4 +252,115 @@ Enjoy your wiki!
 	if err := http.ListenAndServe(addr, router); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
+}
+
+// processInitFile reads and applies initialization settings from a JSON file.
+func processInitFile(filePath string, database *db.Database, cfg *config.Config) error {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to read init file: %w", err)
+	}
+
+	var initCfg InitConfig
+	if err := json.Unmarshal(data, &initCfg); err != nil {
+		return fmt.Errorf("failed to parse init file: %w", err)
+	}
+
+	ctx := context.Background()
+
+	// Process site settings
+	if initCfg.Site != nil {
+		if initCfg.Site.Name != "" {
+			log.Printf("Setting site name to: %s", initCfg.Site.Name)
+			params := db.UpsertPreferenceParams{
+				Name:  "site_name",
+				Value: sql.NullString{String: initCfg.Site.Name, Valid: true},
+			}
+			if err := database.Queries.UpsertPreference(ctx, params); err != nil {
+				return fmt.Errorf("failed to set site name: %w", err)
+			}
+		}
+		if initCfg.Site.Logo != "" {
+			log.Printf("Setting site logo to: %s", initCfg.Site.Logo)
+			params := db.UpsertPreferenceParams{
+				Name:  "site_logo",
+				Value: sql.NullString{String: initCfg.Site.Logo, Valid: true},
+			}
+			if err := database.Queries.UpsertPreference(ctx, params); err != nil {
+				return fmt.Errorf("failed to set site logo: %w", err)
+			}
+		}
+	}
+
+	// Process issue tracker settings
+	if initCfg.Issue != nil {
+		if len(initCfg.Issue.Tags) > 0 {
+			tags := strings.Join(initCfg.Issue.Tags, ",")
+			log.Printf("Setting issue tags to: %s", tags)
+			params := db.UpsertPreferenceParams{
+				Name:  "issue_tags",
+				Value: sql.NullString{String: tags, Valid: true},
+			}
+			if err := database.Queries.UpsertPreference(ctx, params); err != nil {
+				return fmt.Errorf("failed to set issue tags: %w", err)
+			}
+		}
+		if len(initCfg.Issue.Categories) > 0 {
+			categories := strings.Join(initCfg.Issue.Categories, ",")
+			log.Printf("Setting issue categories to: %s", categories)
+			params := db.UpsertPreferenceParams{
+				Name:  "issue_categories",
+				Value: sql.NullString{String: categories, Valid: true},
+			}
+			if err := database.Queries.UpsertPreference(ctx, params); err != nil {
+				return fmt.Errorf("failed to set issue categories: %w", err)
+			}
+		}
+	}
+
+	// Process admin user
+	if initCfg.Admin != nil {
+		if initCfg.Admin.Email == "" || initCfg.Admin.Password == "" {
+			return fmt.Errorf("admin email and password are required")
+		}
+
+		// Check if user already exists
+		_, err := database.Queries.GetUserByEmail(ctx, initCfg.Admin.Email)
+		if err == sql.ErrNoRows {
+			// Create admin user
+			log.Printf("Creating admin user: %s (%s)", initCfg.Admin.Name, initCfg.Admin.Email)
+
+			passwordHash, err := auth.HashPassword(initCfg.Admin.Password)
+			if err != nil {
+				return fmt.Errorf("failed to hash password: %w", err)
+			}
+
+			now := time.Now()
+			params := db.CreateUserParams{
+				Name:           initCfg.Admin.Name,
+				Email:          initCfg.Admin.Email,
+				PasswordHash:   sql.NullString{String: passwordHash, Valid: true},
+				FirstSeen:      sql.NullTime{Time: now, Valid: true},
+				LastSeen:       sql.NullTime{Time: now, Valid: true},
+				IsApproved:     sql.NullBool{Bool: true, Valid: true},
+				IsAdmin:        sql.NullBool{Bool: true, Valid: true},
+				EmailConfirmed: sql.NullBool{Bool: true, Valid: true},
+				AllowRead:      sql.NullBool{Bool: true, Valid: true},
+				AllowWrite:     sql.NullBool{Bool: true, Valid: true},
+				AllowUpload:    sql.NullBool{Bool: true, Valid: true},
+			}
+
+			if _, err := database.Queries.CreateUser(ctx, params); err != nil {
+				return fmt.Errorf("failed to create admin user: %w", err)
+			}
+			log.Printf("Admin user created successfully")
+		} else if err != nil {
+			return fmt.Errorf("failed to check for existing user: %w", err)
+		} else {
+			log.Printf("Admin user %s already exists, skipping creation", initCfg.Admin.Email)
+		}
+	}
+
+	log.Printf("Initialization complete")
+	return nil
 }

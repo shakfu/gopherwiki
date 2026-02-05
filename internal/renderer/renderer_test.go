@@ -225,3 +225,58 @@ func TestSlugify(t *testing.T) {
 		})
 	}
 }
+
+func TestRenderIssueRefs(t *testing.T) {
+	cfg := config.Default()
+	r := New(cfg)
+
+	tests := []struct {
+		name     string
+		input    string
+		contains []string
+		notContains []string
+	}{
+		{
+			name:     "simple issue ref",
+			input:    "See issue [[#123]]",
+			contains: []string{`<a href="/-/issues/123"`, `class="issue-ref"`, "#123", "</a>"},
+		},
+		{
+			name:     "issue ref with custom text",
+			input:    "See [[#456|the bug report]]",
+			contains: []string{`<a href="/-/issues/456"`, `class="issue-ref"`, "the bug report", "</a>"},
+		},
+		{
+			name:     "multiple issue refs",
+			input:    "See [[#1]] and [[#2]]",
+			contains: []string{`href="/-/issues/1"`, `href="/-/issues/2"`},
+		},
+		{
+			name:     "issue ref does not match wikilink",
+			input:    "See [[PageName]]",
+			contains: []string{`<a href="/PageName"`, "PageName"},
+			notContains: []string{"issue-ref"},
+		},
+		{
+			name:     "issue ref with invalid id is not parsed",
+			input:    "See [[#abc]]",
+			notContains: []string{"issue-ref", `href="/-/issues/`},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			html, _, _ := r.Render(tt.input, "/test")
+			for _, want := range tt.contains {
+				if !strings.Contains(html, want) {
+					t.Errorf("Render(%q) should contain %q, got:\n%s", tt.input, want, html)
+				}
+			}
+			for _, notWant := range tt.notContains {
+				if strings.Contains(html, notWant) {
+					t.Errorf("Render(%q) should NOT contain %q, got:\n%s", tt.input, notWant, html)
+				}
+			}
+		})
+	}
+}

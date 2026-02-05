@@ -58,6 +58,22 @@ CREATE TABLE IF NOT EXISTS cache (
 );
 
 CREATE INDEX IF NOT EXISTS idx_cache_key ON cache(key);
+
+CREATE TABLE IF NOT EXISTS issues (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    description TEXT,
+    status TEXT NOT NULL DEFAULT 'open',
+    category TEXT,
+    tags TEXT,
+    created_by_name TEXT,
+    created_by_email TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_issues_status ON issues(status);
+CREATE INDEX IF NOT EXISTS idx_issues_created_at ON issues(created_at);
 `
 
 // Open opens a new database connection.
@@ -108,6 +124,35 @@ func (d *Database) Migrate(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
+
+	// Run additional migrations for existing databases
+	if err := d.runMigrations(ctx); err != nil {
+		return fmt.Errorf("failed to run migrations: %w", err)
+	}
+
+	return nil
+}
+
+// runMigrations handles incremental schema changes for existing databases.
+func (d *Database) runMigrations(ctx context.Context) error {
+	// Check if issues table has category column, add if missing
+	var count int
+	err := d.conn.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM pragma_table_info('issues') WHERE name='category'").Scan(&count)
+	if err != nil {
+		return fmt.Errorf("failed to check issues schema: %w", err)
+	}
+	if count == 0 {
+		_, err := d.conn.ExecContext(ctx, "ALTER TABLE issues ADD COLUMN category TEXT")
+		if err != nil {
+			return fmt.Errorf("failed to add category column: %w", err)
+		}
+		_, err = d.conn.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_issues_category ON issues(category)")
+		if err != nil {
+			return fmt.Errorf("failed to create category index: %w", err)
+		}
+	}
+
 	return nil
 }
 

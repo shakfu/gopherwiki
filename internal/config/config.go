@@ -79,6 +79,10 @@ type Config struct {
 	HTMLExtraHead      string
 	HTMLExtraBody      string
 	LogLevelWerkzeug   string
+
+	// Issue tracker settings
+	IssueTags       string // Comma-separated list of available issue tags
+	IssueCategories string // Comma-separated list of available issue categories (mutually exclusive)
 }
 
 // Default returns a Config with default values matching the Python implementation.
@@ -136,6 +140,8 @@ func Default() *Config {
 		HTMLExtraHead:      "",
 		HTMLExtraBody:      "",
 		LogLevelWerkzeug:   "INFO",
+		IssueTags:       "bug,feature,improvement,question,documentation",
+		IssueCategories: "", // Empty by default - no categories required
 	}
 }
 
@@ -251,6 +257,10 @@ func (c *Config) LoadFromEnv() {
 	c.HTMLExtraHead = getEnv("HTML_EXTRA_HEAD", c.HTMLExtraHead)
 	c.HTMLExtraBody = getEnv("HTML_EXTRA_BODY", c.HTMLExtraBody)
 	c.LogLevelWerkzeug = getEnv("LOG_LEVEL_WERKZEUG", c.LogLevelWerkzeug)
+
+	// Issue tracker settings
+	c.IssueTags = getEnv("ISSUE_TAGS", c.IssueTags)
+	c.IssueCategories = getEnv("ISSUE_CATEGORIES", c.IssueCategories)
 }
 
 // Validate checks that required configuration is set.

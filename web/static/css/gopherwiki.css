@@ -588,3 +588,110 @@ mark {
         scrollbar-color: rgba(255, 255, 255, 0.25) transparent !important;
     }
 }
+
+/* Issue tracker styles */
+.issue-list {
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: 0.4rem;
+}
+
+.dark-mode .issue-list {
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+.issue-list-item {
+    transition: background-color 0.15s ease-in-out;
+}
+
+.issue-list-item:hover {
+    background-color: rgba(0, 0, 0, 0.03);
+}
+
+.dark-mode .issue-list-item:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+.issue-list-item:last-child {
+    border-bottom: none !important;
+}
+
+.issue-link {
+    color: inherit;
+    text-decoration: none;
+}
+
+.issue-link:hover {
+    color: var(--primary-color);
+    text-decoration: none;
+}
+
+.issue-status-open {
+    color: #28a745;
+}
+
+.issue-status-closed {
+    color: #6c757d;
+}
+
+.issue-meta {
+    margin-top: 0.3rem;
+}
+
+.issue-description {
+    margin-bottom: 1rem;
+}
+
+.issue-description .wiki-content {
+    padding: 0;
+}
+
+/* Issue tags */
+.issue-tag {
+    font-size: 0.85rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 1rem;
+    text-decoration: none;
+    color: #fff;
+}
+
+.issue-tag:hover {
+    text-decoration: none;
+    color: #fff;
+    opacity: 0.9;
+}
+
+.issue-tag-bug {
+    background-color: #d73a4a;
+}
+
+.issue-tag-feature {
+    background-color: #0075ca;
+}
+
+.issue-tag-improvement {
+    background-color: #a2eeef;
+    color: #000;
+}
+
+.issue-tag-improvement:hover {
+    color: #000;
+}
+
+.issue-tag-question {
+    background-color: #d876e3;
+}
+
+.issue-tag-documentation {
+    background-color: #0052cc;
+}
+
+/* Issue reference links in wiki content */
+a.issue-ref {
+    color: var(--primary-color);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+a.issue-ref:hover {
+    text-decoration: underline;
+}

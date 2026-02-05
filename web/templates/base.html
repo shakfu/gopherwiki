@@ -6,11 +6,11 @@
   <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
   <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" name="viewport" />
   <meta name="viewport" content="width=device-width" />
-  <meta property="og:title" content="{{if .title}}{{.title}}{{else if .config}}{{.config.SiteName}}{{else}}GopherWiki{{end}}" />
+  <meta property="og:title" content="{{if .title}}{{.title}}{{else if .site}}{{.site.Name}}{{else}}GopherWiki{{end}}" />
   <meta property="og:type" content="website" />
   <meta property="og:description" content="{{if .config}}{{.config.SiteDescription}}{{else}}A minimalistic wiki powered by Go, markdown and git.{{end}}" />
   <link rel="icon" href="/static/img/otter-favicon2.png">
-  <title>{{if .title}}{{.title}} - {{end}}{{if .config}}{{.config.SiteName}}{{else}}GopherWiki{{end}}</title>
+  <title>{{if .title}}{{.title}} - {{end}}{{if .site}}{{.site.Name}}{{else}}GopherWiki{{end}}</title>
   <link href="/static/css/halfmoon.min.css" rel="stylesheet" media="screen" />
   <link href="/static/css/gopherwiki.css" rel="stylesheet" media="screen" />
   <link href="/static/css/print.css" rel="stylesheet" media="print" />
@@ -33,8 +33,8 @@
                 </button>
             </div>
             <a href="/" class="navbar-brand ml-10 ml-sm-20">
-                <img src="/static/img/otterhead.png" alt="" id="site_logo"/>
-                <span class="d-none d-sm-flex text-truncate">{{if .config}}{{.config.SiteName}}{{else}}GopherWiki{{end}}</span>
+                <img src="{{if and .site .site.Logo}}{{.site.Logo}}{{else}}/static/img/otterhead.png{{end}}" alt="" id="site_logo"/>
+                <span class="d-none d-sm-flex text-truncate">{{if .site}}{{.site.Name}}{{else}}GopherWiki{{end}}</span>
             </a>
             {{if .templateType}}{{if eq .templateType "editor"}}{{template "editor_navbar_editor" .}}{{end}}{{end}}
             <div class="navbar-content ml-auto">
@@ -104,6 +104,10 @@
                     <span class="sidebar-icon"><i class="fas fa-history"></i></span>
                     Changelog
                 </a>
+                <a href="/-/issues" class="sidebar-link sidebar-link-with-icon">
+                    <span class="sidebar-icon"><i class="fas fa-tasks"></i></span>
+                    Issues
+                </a>
                 <a href="/-/create" id="create-page-btn" class="sidebar-link sidebar-link-with-icon">
                     <span class="sidebar-icon"><i class="far fa-file"></i></span>
                     Create page
@@ -118,8 +122,8 @@
             </div>
             <div class="sidebar-otter">
                 <a href="/-/about" class="sidebar-link">
-                <img class="sidebar-logo" src="/static/img/otter.png" alt=""/><br/>
-                GopherWiki
+                <img class="sidebar-logo" src="{{if and .site .site.Logo}}{{.site.Logo}}{{else}}/static/img/otter.png{{end}}" alt=""/><br/>
+                {{if .site}}{{.site.Name}}{{else}}GopherWiki{{end}}
                 </a>
             </div>
         </div>

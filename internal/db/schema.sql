@@ -40,3 +40,19 @@ CREATE TABLE IF NOT EXISTS cache (
 );
 
 CREATE INDEX IF NOT EXISTS idx_cache_key ON cache(key);
+
+CREATE TABLE IF NOT EXISTS issues (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    description TEXT,
+    status TEXT NOT NULL DEFAULT 'open',
+    category TEXT,
+    tags TEXT,
+    created_by_name TEXT,
+    created_by_email TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_issues_status ON issues(status);
+CREATE INDEX IF NOT EXISTS idx_issues_created_at ON issues(created_at);

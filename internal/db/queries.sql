@@ -115,3 +115,36 @@ DELETE FROM cache WHERE key = ?;
 
 -- name: ClearExpiredCache :exec
 DELETE FROM cache WHERE datetime < ?;
+
+-- Issue queries
+
+-- name: GetIssue :one
+SELECT * FROM issues WHERE id = ?;
+
+-- name: ListIssues :many
+SELECT * FROM issues ORDER BY category, created_at DESC;
+
+-- name: ListIssuesByStatus :many
+SELECT * FROM issues WHERE status = ? ORDER BY category, created_at DESC;
+
+-- name: ListIssuesByCategory :many
+SELECT * FROM issues WHERE category = ? ORDER BY created_at DESC;
+
+-- name: ListIssuesByCategoryAndStatus :many
+SELECT * FROM issues WHERE category = ? AND status = ? ORDER BY created_at DESC;
+
+-- name: CreateIssue :one
+INSERT INTO issues (title, description, status, category, tags, created_by_name, created_by_email, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *;
+
+-- name: UpdateIssue :exec
+UPDATE issues SET title = ?, description = ?, status = ?, category = ?, tags = ?, updated_at = ? WHERE id = ?;
+
+-- name: DeleteIssue :exec
+DELETE FROM issues WHERE id = ?;
+
+-- name: CountIssuesByStatus :one
+SELECT COUNT(*) FROM issues WHERE status = ?;
+
+-- name: ListDistinctCategories :many
+SELECT DISTINCT category FROM issues WHERE category IS NOT NULL AND category != '' ORDER BY category;

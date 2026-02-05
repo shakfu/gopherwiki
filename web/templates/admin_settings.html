@@ -62,6 +62,62 @@
     </div>
 </div>
 
+<div class="card mb-20">
+    <div class="card-body">
+        <h5 class="card-title">Site Branding</h5>
+        <form action="/-/admin/site-settings" method="post">
+            <div class="form-group">
+                <label for="site_name">Site Name</label>
+                <input type="text" name="site_name" id="site_name" class="form-control"
+                       value="{{.current_site.Name}}"
+                       placeholder="My Wiki">
+                <small class="form-text text-muted">
+                    The name displayed in the browser title bar, navbar, and sidebar.
+                </small>
+            </div>
+            <div class="form-group">
+                <label for="site_logo">Site Logo URL</label>
+                <input type="text" name="site_logo" id="site_logo" class="form-control"
+                       value="{{.current_site.Logo}}"
+                       placeholder="/static/img/my-logo.png or https://example.com/logo.png">
+                <small class="form-text text-muted">
+                    URL to a custom logo image. Leave empty to use the default logo.
+                    You can use an absolute URL or a path to a file in /static/.
+                </small>
+            </div>
+            <button type="submit" class="btn btn-primary">Save Site Settings</button>
+        </form>
+    </div>
+</div>
+
+<div class="card mb-20">
+    <div class="card-body">
+        <h5 class="card-title">Issue Tracker Settings</h5>
+        <form action="/-/admin/issue-settings" method="post">
+            <div class="form-group">
+                <label for="issue_categories">Categories (Mutually Exclusive)</label>
+                <input type="text" name="issue_categories" id="issue_categories" class="form-control"
+                       value="{{.issue_categories}}"
+                       placeholder="Bug, Feature Request, Question, Other">
+                <small class="form-text text-muted">
+                    Comma-separated list of categories. Each issue must belong to exactly one category.
+                    Issues are grouped by category in the list view. Leave empty to disable categories.
+                </small>
+            </div>
+            <div class="form-group">
+                <label for="issue_tags">Tags (Multiple Allowed)</label>
+                <input type="text" name="issue_tags" id="issue_tags" class="form-control"
+                       value="{{.issue_tags}}"
+                       placeholder="urgent, low-priority, needs-review, wontfix">
+                <small class="form-text text-muted">
+                    Comma-separated list of tags. Multiple tags can be assigned to each issue for additional labeling.
+                </small>
+            </div>
+            <button type="submit" class="btn btn-primary">Save Issue Settings</button>
+        </form>
+    </div>
+</div>
+
 <div class="card">
     <div class="card-body">
         <h5 class="card-title">Environment Variables</h5>
@@ -74,7 +130,8 @@ WRITE_ACCESS="REGISTERED" # ANONYMOUS, REGISTERED, or APPROVED
 ATTACHMENT_ACCESS="REGISTERED"
 AUTO_APPROVAL=false
 DISABLE_REGISTRATION=false
-EMAIL_NEEDS_CONFIRMATION=true</code></pre>
+EMAIL_NEEDS_CONFIRMATION=true
+ISSUE_TAGS="bug,feature,improvement"  # Initial issue tags</code></pre>
     </div>
 </div>
 {{end}}

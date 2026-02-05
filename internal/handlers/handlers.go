@@ -2,6 +2,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"html"
@@ -261,6 +262,35 @@ func (s *Server) templateFuncs() template.FuncMap {
 				return "/attachments"
 			case "pageindex":
 				return "/-/pageindex"
+			case "issues":
+				return "/-/issues"
+			case "issue_new":
+				return "/-/issues/new"
+			case "issue":
+				if len(args) >= 2 && args[0] == "id" {
+					return "/-/issues/" + args[1]
+				}
+				return "/-/issues"
+			case "issue_edit":
+				if len(args) >= 2 && args[0] == "id" {
+					return "/-/issues/" + args[1] + "/edit"
+				}
+				return "/-/issues"
+			case "issue_close":
+				if len(args) >= 2 && args[0] == "id" {
+					return "/-/issues/" + args[1] + "/close"
+				}
+				return "/-/issues"
+			case "issue_reopen":
+				if len(args) >= 2 && args[0] == "id" {
+					return "/-/issues/" + args[1] + "/reopen"
+				}
+				return "/-/issues"
+			case "issue_delete":
+				if len(args) >= 2 && args[0] == "id" {
+					return "/-/issues/" + args[1] + "/delete"
+				}
+				return "/-/issues"
 			default:
 				return "/"
 			}
@@ -273,6 +303,32 @@ func (s *Server) templateFuncs() template.FuncMap {
 	}
 }
 
+// SiteSettings holds customizable site settings that can be changed at runtime.
+type SiteSettings struct {
+	Name string
+	Logo string
+}
+
+// getSiteSettings returns site settings from preferences or config.
+func (s *Server) getSiteSettings(ctx context.Context) SiteSettings {
+	settings := SiteSettings{
+		Name: s.Config.SiteName,
+		Logo: s.Config.SiteLogo,
+	}
+
+	// Try to get site name from preferences
+	if pref, err := s.DB.Queries.GetPreference(ctx, "site_name"); err == nil && pref.Value.Valid && pref.Value.String != "" {
+		settings.Name = pref.Value.String
+	}
+
+	// Try to get site logo from preferences
+	if pref, err := s.DB.Queries.GetPreference(ctx, "site_logo"); err == nil && pref.Value.Valid && pref.Value.String != "" {
+		settings.Logo = pref.Value.String
+	}
+
+	return settings
+}
+
 // renderTemplate renders a template with common context.
 func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name string, data map[string]interface{}) {
 	if data == nil {
@@ -282,6 +338,9 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name str
 	// Add common context
 	data["config"] = s.Config
 	data["Version"] = s.Version
+
+	// Add site settings (from preferences or config)
+	data["site"] = s.getSiteSettings(r.Context())
 
 	// Add auth context from session
 	user := middleware.GetUser(r)
@@ -356,6 +415,8 @@ func (s *Server) Routes() chi.Router {
 		r.Post("/admin/users/{id}/delete", s.handleAdminUserDelete)
 		r.Get("/admin/settings", s.handleAdminSettings)
 		r.Post("/admin/settings", s.handleAdminSettingsSave)
+		r.Post("/admin/site-settings", s.handleAdminSiteSettingsSave)
+		r.Post("/admin/issue-settings", s.handleAdminIssueSettingsSave)
 		// Feeds
 		r.Get("/feed", s.handleFeed)
 		r.Get("/feed.rss", s.handleFeed)
@@ -364,6 +425,16 @@ func (s *Server) Routes() chi.Router {
 		r.Get("/robots.txt", s.handleRobotsTxt)
 		r.Get("/sitemap.xml", s.handleSitemap)
 		r.Get("/health", s.handleHealthCheck)
+		// Issue tracker routes
+		r.Get("/issues", s.handleIssueList)
+		r.Get("/issues/new", s.handleIssueNew)
+		r.Post("/issues/new", s.handleIssueCreate)
+		r.Get("/issues/{id}", s.handleIssueView)
+		r.Get("/issues/{id}/edit", s.handleIssueEdit)
+		r.Post("/issues/{id}/edit", s.handleIssueUpdate)
+		r.Post("/issues/{id}/close", s.handleIssueClose)
+		r.Post("/issues/{id}/reopen", s.handleIssueReopen)
+		r.Post("/issues/{id}/delete", s.handleIssueDelete)
 	})
 
 	// Index/home page
@@ -1701,10 +1772,22 @@ func (s *Server) handleAdminSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx := r.Context()
+
+	// Get current site settings from preferences or config
+	siteSettings := s.getSiteSettings(ctx)
+
+	// Get current issue tags and categories from preferences or config
+	issueTags := s.getAvailableTags(ctx)
+	issueCategories := s.getAvailableCategories(ctx)
+
 	data := map[string]interface{}{
-		"templateType":  "generic",
-		"title":         "Site Settings",
-		"site_settings": s.Config,
+		"templateType":     "generic",
+		"title":            "Site Settings",
+		"site_settings":    s.Config,
+		"current_site":     siteSettings,
+		"issue_tags":       strings.Join(issueTags, ", "),
+		"issue_categories": strings.Join(issueCategories, ", "),
 	}
 	s.renderTemplate(w, r, "admin_settings.html", data)
 }
@@ -1718,6 +1801,109 @@ func (s *Server) handleAdminSettingsSave(w http.ResponseWriter, r *http.Request)
 	// Note: Runtime config changes are limited. Most settings require restart.
 	// This is a placeholder for future implementation.
 	s.SessionManager.AddFlashMessage(w, r, "info", "Settings changes require a restart to take effect")
+	http.Redirect(w, r, "/-/admin/settings", http.StatusFound)
+}
+
+// handleAdminSiteSettingsSave handles saving site name and logo.
+func (s *Server) handleAdminSiteSettingsSave(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	siteName := strings.TrimSpace(r.FormValue("site_name"))
+	siteLogo := strings.TrimSpace(r.FormValue("site_logo"))
+
+	ctx := r.Context()
+
+	// Save site name to preferences
+	if siteName != "" {
+		params := db.UpsertPreferenceParams{
+			Name:  "site_name",
+			Value: toSqlNullString(siteName),
+		}
+		if err := s.DB.Queries.UpsertPreference(ctx, params); err != nil {
+			s.SessionManager.AddFlashMessage(w, r, "danger", "Failed to save site name")
+			http.Redirect(w, r, "/-/admin/settings", http.StatusFound)
+			return
+		}
+	}
+
+	// Save site logo to preferences (can be empty to use default)
+	params := db.UpsertPreferenceParams{
+		Name:  "site_logo",
+		Value: toSqlNullString(siteLogo),
+	}
+	if err := s.DB.Queries.UpsertPreference(ctx, params); err != nil {
+		s.SessionManager.AddFlashMessage(w, r, "danger", "Failed to save site logo")
+		http.Redirect(w, r, "/-/admin/settings", http.StatusFound)
+		return
+	}
+
+	s.SessionManager.AddFlashMessage(w, r, "success", "Site settings updated successfully")
+	http.Redirect(w, r, "/-/admin/settings", http.StatusFound)
+}
+
+// handleAdminIssueSettingsSave handles saving issue tracker configuration (categories and tags).
+func (s *Server) handleAdminIssueSettingsSave(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+	categoriesInput := r.FormValue("issue_categories")
+	tagsInput := r.FormValue("issue_tags")
+
+	// Parse and clean the categories
+	var cleanCategories []string
+	for _, cat := range strings.Split(categoriesInput, ",") {
+		cat = strings.TrimSpace(cat)
+		if cat != "" {
+			cleanCategories = append(cleanCategories, cat)
+		}
+	}
+
+	// Parse and clean the tags
+	var cleanTags []string
+	for _, tag := range strings.Split(tagsInput, ",") {
+		tag = strings.TrimSpace(tag)
+		if tag != "" {
+			cleanTags = append(cleanTags, tag)
+		}
+	}
+
+	// Save categories to preferences
+	catParams := db.UpsertPreferenceParams{
+		Name:  "issue_categories",
+		Value: toSqlNullString(strings.Join(cleanCategories, ",")),
+	}
+	if err := s.DB.Queries.UpsertPreference(ctx, catParams); err != nil {
+		s.SessionManager.AddFlashMessage(w, r, "danger", "Failed to save issue categories")
+		http.Redirect(w, r, "/-/admin/settings", http.StatusFound)
+		return
+	}
+
+	// Save tags to preferences
+	tagParams := db.UpsertPreferenceParams{
+		Name:  "issue_tags",
+		Value: toSqlNullString(strings.Join(cleanTags, ",")),
+	}
+	if err := s.DB.Queries.UpsertPreference(ctx, tagParams); err != nil {
+		s.SessionManager.AddFlashMessage(w, r, "danger", "Failed to save issue tags")
+		http.Redirect(w, r, "/-/admin/settings", http.StatusFound)
+		return
+	}
+
+	s.SessionManager.AddFlashMessage(w, r, "success", "Issue settings updated successfully")
 	http.Redirect(w, r, "/-/admin/settings", http.StatusFound)
 }
 

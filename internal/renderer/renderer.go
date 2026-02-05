@@ -87,6 +87,7 @@ func New(cfg *config.Config) *Renderer {
 			extension.Typographer,
 			extension.Footnote,
 			highlighting.NewHighlighting(highlightOpts...),
+			&IssueRefExtension{},
 			&WikiLinkExtension{},
 			&TaskListExtension{},
 			&AlertExtension{},
@@ -462,4 +463,107 @@ func processAlerts(htmlContent string) string {
 	// Close the alert divs (replace </blockquote> after an alert start)
 	// This is a simplified approach - a proper AST-based solution would be more robust
 	return htmlContent
+}
+
+// IssueRefExtension implements the goldmark extension for [[#123]] issue references.
+type IssueRefExtension struct{}
+
+func (e *IssueRefExtension) Extend(m goldmark.Markdown) {
+	m.Parser().AddOptions(
+		parser.WithInlineParsers(
+			util.Prioritized(&issueRefParser{}, 198), // Lower number = higher priority, runs before WikiLink (199)
+		),
+	)
+	m.Renderer().AddOptions(
+		renderer.WithNodeRenderers(
+			util.Prioritized(&issueRefRenderer{}, 198),
+		),
+	)
+}
+
+// IssueRef AST node for [[#123]] references
+var KindIssueRef = ast.NewNodeKind("IssueRef")
+
+type IssueRef struct {
+	ast.BaseInline
+	IssueID  string
+	LinkText string
+}
+
+func (n *IssueRef) Kind() ast.NodeKind {
+	return KindIssueRef
+}
+
+func (n *IssueRef) Dump(source []byte, level int) {
+	m := map[string]string{
+		"IssueID":  n.IssueID,
+		"LinkText": n.LinkText,
+	}
+	ast.DumpHelper(n, source, level, m, nil)
+}
+
+type issueRefParser struct{}
+
+func (p *issueRefParser) Trigger() []byte {
+	return []byte{'['}
+}
+
+func (p *issueRefParser) Parse(parent ast.Node, block text.Reader, pc parser.Context) ast.Node {
+	line, _ := block.PeekLine()
+	if len(line) < 5 || line[0] != '[' || line[1] != '[' || line[2] != '#' {
+		return nil
+	}
+
+	// Find closing ]]
+	end := bytes.Index(line[3:], []byte("]]"))
+	if end < 0 {
+		return nil
+	}
+
+	content := string(line[3 : 3+end])
+
+	// Check for pipe separator: [[#123|Custom Text]]
+	issueID := content
+	linkText := "#" + content
+	if idx := strings.Index(content, "|"); idx >= 0 {
+		issueID = strings.TrimSpace(content[:idx])
+		linkText = strings.TrimSpace(content[idx+1:])
+	}
+
+	// Validate that issueID contains only digits
+	for _, c := range issueID {
+		if c < '0' || c > '9' {
+			return nil
+		}
+	}
+
+	if issueID == "" {
+		return nil
+	}
+
+	block.Advance(5 + end) // [[ + # + content + ]]
+
+	return &IssueRef{
+		IssueID:  issueID,
+		LinkText: linkText,
+	}
+}
+
+type issueRefRenderer struct{}
+
+func (r *issueRefRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
+	reg.Register(KindIssueRef, r.renderIssueRef)
+}
+
+func (r *issueRefRenderer) renderIssueRef(w util.BufWriter, source []byte, n ast.Node, entering bool) (ast.WalkStatus, error) {
+	if !entering {
+		return ast.WalkContinue, nil
+	}
+
+	ir := n.(*IssueRef)
+
+	// Output: <a href="/-/issues/123" class="issue-ref">#123</a>
+	_, _ = w.WriteString(fmt.Sprintf(`<a href="/-/issues/%s" class="issue-ref">%s</a>`, html.EscapeString(ir.IssueID), html.EscapeString(ir.LinkText)))
+
+	return ast.WalkContinue, nil
 }

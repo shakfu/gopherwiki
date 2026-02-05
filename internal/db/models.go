@@ -25,6 +25,19 @@ type Draft struct {
 	Datetime    sql.NullTime   `json:"datetime"`
 }
 
+type Issue struct {
+	ID             int64          `json:"id"`
+	Title          string         `json:"title"`
+	Description    sql.NullString `json:"description"`
+	Status         string         `json:"status"`
+	Category       sql.NullString `json:"category"`
+	Tags           sql.NullString `json:"tags"`
+	CreatedByName  sql.NullString `json:"created_by_name"`
+	CreatedByEmail sql.NullString `json:"created_by_email"`
+	CreatedAt      sql.NullTime   `json:"created_at"`
+	UpdatedAt      sql.NullTime   `json:"updated_at"`
+}
+
 type Preference struct {
 	Name  string         `json:"name"`
 	Value sql.NullString `json:"value"`

@@ -30,6 +30,17 @@ func (q *Queries) CountAdmins(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+const countIssuesByStatus = `-- name: CountIssuesByStatus :one
+SELECT COUNT(*) FROM issues WHERE status = ?
+`
+
+func (q *Queries) CountIssuesByStatus(ctx context.Context, status string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countIssuesByStatus, status)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countUsers = `-- name: CountUsers :one
 SELECT COUNT(*) FROM user
 `
@@ -78,6 +89,51 @@ func (q *Queries) CreateDraft(ctx context.Context, arg CreateDraftParams) (Draft
 		&i.CursorLine,
 		&i.CursorCh,
 		&i.Datetime,
+	)
+	return i, err
+}
+
+const createIssue = `-- name: CreateIssue :one
+INSERT INTO issues (title, description, status, category, tags, created_by_name, created_by_email, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, title, description, status, category, tags, created_by_name, created_by_email, created_at, updated_at
+`
+
+type CreateIssueParams struct {
+	Title          string         `json:"title"`
+	Description    sql.NullString `json:"description"`
+	Status         string         `json:"status"`
+	Category       sql.NullString `json:"category"`
+	Tags           sql.NullString `json:"tags"`
+	CreatedByName  sql.NullString `json:"created_by_name"`
+	CreatedByEmail sql.NullString `json:"created_by_email"`
+	CreatedAt      sql.NullTime   `json:"created_at"`
+	UpdatedAt      sql.NullTime   `json:"updated_at"`
+}
+
+func (q *Queries) CreateIssue(ctx context.Context, arg CreateIssueParams) (Issue, error) {
+	row := q.db.QueryRowContext(ctx, createIssue,
+		arg.Title,
+		arg.Description,
+		arg.Status,
+		arg.Category,
+		arg.Tags,
+		arg.CreatedByName,
+		arg.CreatedByEmail,
+		arg.CreatedAt,
+		arg.UpdatedAt,
+	)
+	var i Issue
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Description,
+		&i.Status,
+		&i.Category,
+		&i.Tags,
+		&i.CreatedByName,
+		&i.CreatedByEmail,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
@@ -177,6 +233,15 @@ func (q *Queries) DeleteExpiredAnonymousDrafts(ctx context.Context, datetime sql
 	return err
 }
 
+const deleteIssue = `-- name: DeleteIssue :exec
+DELETE FROM issues WHERE id = ?
+`
+
+func (q *Queries) DeleteIssue(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteIssue, id)
+	return err
+}
+
 const deletePreference = `-- name: DeletePreference :exec
 DELETE FROM preferences WHERE name = ?
 `
@@ -255,6 +320,30 @@ func (q *Queries) GetDraftByID(ctx context.Context, id int64) (Draft, error) {
 	return i, err
 }
 
+const getIssue = `-- name: GetIssue :one
+
+SELECT id, title, description, status, category, tags, created_by_name, created_by_email, created_at, updated_at FROM issues WHERE id = ?
+`
+
+// Issue queries
+func (q *Queries) GetIssue(ctx context.Context, id int64) (Issue, error) {
+	row := q.db.QueryRowContext(ctx, getIssue, id)
+	var i Issue
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Description,
+		&i.Status,
+		&i.Category,
+		&i.Tags,
+		&i.CreatedByName,
+		&i.CreatedByEmail,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getPreference = `-- name: GetPreference :one
 SELECT name, value FROM preferences WHERE name = ? LIMIT 1
 `
@@ -316,6 +405,33 @@ func (q *Queries) GetUserByID(ctx context.Context, id int64) (User, error) {
 	return i, err
 }
 
+const listDistinctCategories = `-- name: ListDistinctCategories :many
+SELECT DISTINCT category FROM issues WHERE category IS NOT NULL AND category != '' ORDER BY category
+`
+
+func (q *Queries) ListDistinctCategories(ctx context.Context) ([]sql.NullString, error) {
+	rows, err := q.db.QueryContext(ctx, listDistinctCategories)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []sql.NullString{}
+	for rows.Next() {
+		var category sql.NullString
+		if err := rows.Scan(&category); err != nil {
+			return nil, err
+		}
+		items = append(items, category)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listDraftsByPagepath = `-- name: ListDraftsByPagepath :many
 SELECT id, pagepath, revision, author_email, content, cursor_line, cursor_ch, datetime FROM drafts WHERE pagepath = ? ORDER BY datetime DESC
 `
@@ -338,6 +454,163 @@ func (q *Queries) ListDraftsByPagepath(ctx context.Context, pagepath sql.NullStr
 			&i.CursorLine,
 			&i.CursorCh,
 			&i.Datetime,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listIssues = `-- name: ListIssues :many
+SELECT id, title, description, status, category, tags, created_by_name, created_by_email, created_at, updated_at FROM issues ORDER BY category, created_at DESC
+`
+
+func (q *Queries) ListIssues(ctx context.Context) ([]Issue, error) {
+	rows, err := q.db.QueryContext(ctx, listIssues)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Issue{}
+	for rows.Next() {
+		var i Issue
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Description,
+			&i.Status,
+			&i.Category,
+			&i.Tags,
+			&i.CreatedByName,
+			&i.CreatedByEmail,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listIssuesByCategory = `-- name: ListIssuesByCategory :many
+SELECT id, title, description, status, category, tags, created_by_name, created_by_email, created_at, updated_at FROM issues WHERE category = ? ORDER BY created_at DESC
+`
+
+func (q *Queries) ListIssuesByCategory(ctx context.Context, category sql.NullString) ([]Issue, error) {
+	rows, err := q.db.QueryContext(ctx, listIssuesByCategory, category)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Issue{}
+	for rows.Next() {
+		var i Issue
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Description,
+			&i.Status,
+			&i.Category,
+			&i.Tags,
+			&i.CreatedByName,
+			&i.CreatedByEmail,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listIssuesByCategoryAndStatus = `-- name: ListIssuesByCategoryAndStatus :many
+SELECT id, title, description, status, category, tags, created_by_name, created_by_email, created_at, updated_at FROM issues WHERE category = ? AND status = ? ORDER BY created_at DESC
+`
+
+type ListIssuesByCategoryAndStatusParams struct {
+	Category sql.NullString `json:"category"`
+	Status   string         `json:"status"`
+}
+
+func (q *Queries) ListIssuesByCategoryAndStatus(ctx context.Context, arg ListIssuesByCategoryAndStatusParams) ([]Issue, error) {
+	rows, err := q.db.QueryContext(ctx, listIssuesByCategoryAndStatus, arg.Category, arg.Status)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Issue{}
+	for rows.Next() {
+		var i Issue
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Description,
+			&i.Status,
+			&i.Category,
+			&i.Tags,
+			&i.CreatedByName,
+			&i.CreatedByEmail,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listIssuesByStatus = `-- name: ListIssuesByStatus :many
+SELECT id, title, description, status, category, tags, created_by_name, created_by_email, created_at, updated_at FROM issues WHERE status = ? ORDER BY category, created_at DESC
+`
+
+func (q *Queries) ListIssuesByStatus(ctx context.Context, status string) ([]Issue, error) {
+	rows, err := q.db.QueryContext(ctx, listIssuesByStatus, status)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Issue{}
+	for rows.Next() {
+		var i Issue
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Description,
+			&i.Status,
+			&i.Category,
+			&i.Tags,
+			&i.CreatedByName,
+			&i.CreatedByEmail,
+			&i.CreatedAt,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -461,6 +734,33 @@ func (q *Queries) UpdateDraft(ctx context.Context, arg UpdateDraftParams) error 
 		arg.CursorLine,
 		arg.CursorCh,
 		arg.Datetime,
+		arg.ID,
+	)
+	return err
+}
+
+const updateIssue = `-- name: UpdateIssue :exec
+UPDATE issues SET title = ?, description = ?, status = ?, category = ?, tags = ?, updated_at = ? WHERE id = ?
+`
+
+type UpdateIssueParams struct {
+	Title       string         `json:"title"`
+	Description sql.NullString `json:"description"`
+	Status      string         `json:"status"`
+	Category    sql.NullString `json:"category"`
+	Tags        sql.NullString `json:"tags"`
+	UpdatedAt   sql.NullTime   `json:"updated_at"`
+	ID          int64          `json:"id"`
+}
+
+func (q *Queries) UpdateIssue(ctx context.Context, arg UpdateIssueParams) error {
+	_, err := q.db.ExecContext(ctx, updateIssue,
+		arg.Title,
+		arg.Description,
+		arg.Status,
+		arg.Category,
+		arg.Tags,
+		arg.UpdatedAt,
 		arg.ID,
 	)
 	return err
