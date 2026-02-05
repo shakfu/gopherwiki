@@ -1,0 +1,77 @@
+{{define "generic_content"}}
+<h1>Edit User</h1>
+
+<p>
+    <a href="/-/admin/users" class="btn btn-secondary btn-sm">Back to Users</a>
+</p>
+
+{{if .flashes}}
+{{range .flashes}}
+<div class="alert alert-{{if .Category}}{{.Category}}{{else}}info{{end}}" role="alert">
+    {{if .Message}}{{.Message}}{{else}}{{.}}{{end}}
+</div>
+{{end}}
+{{end}}
+
+<div class="card">
+    <div class="card-body">
+        <form action="/-/admin/users/{{.edit_user.ID}}" method="post">
+            <div class="form-group">
+                <label for="name">Name</label>
+                <input type="text" name="name" id="name" class="form-control" value="{{.edit_user.GetName}}" required>
+            </div>
+
+            <div class="form-group">
+                <label for="email">Email</label>
+                <input type="email" id="email" class="form-control" value="{{.edit_user.GetEmail}}" disabled>
+                <small class="form-text text-muted">Email cannot be changed</small>
+            </div>
+
+            <hr>
+            <h5>Status</h5>
+
+            <div class="form-check">
+                <input type="checkbox" name="is_approved" id="is_approved" class="form-check-input" {{if .edit_user.Approved}}checked{{end}}>
+                <label class="form-check-label" for="is_approved">Approved</label>
+            </div>
+
+            <div class="form-check">
+                <input type="checkbox" name="is_admin" id="is_admin" class="form-check-input" {{if .edit_user.Admin}}checked{{end}}>
+                <label class="form-check-label" for="is_admin">Administrator</label>
+            </div>
+
+            <hr>
+            <h5>Permissions</h5>
+
+            <div class="form-check">
+                <input type="checkbox" name="allow_read" id="allow_read" class="form-check-input" {{if .edit_user.CanRead}}checked{{end}}>
+                <label class="form-check-label" for="allow_read">Can Read</label>
+            </div>
+
+            <div class="form-check">
+                <input type="checkbox" name="allow_write" id="allow_write" class="form-check-input" {{if .edit_user.CanWrite}}checked{{end}}>
+                <label class="form-check-label" for="allow_write">Can Write</label>
+            </div>
+
+            <div class="form-check">
+                <input type="checkbox" name="allow_upload" id="allow_upload" class="form-check-input" {{if .edit_user.CanUpload}}checked{{end}}>
+                <label class="form-check-label" for="allow_upload">Can Upload</label>
+            </div>
+
+            <hr>
+            <button type="submit" class="btn btn-primary">Save Changes</button>
+        </form>
+    </div>
+</div>
+
+<hr>
+
+<div class="card border-danger">
+    <div class="card-body">
+        <h5 class="card-title text-danger">Danger Zone</h5>
+        <form action="/-/admin/users/{{.edit_user.ID}}/delete" method="post" onsubmit="return confirm('Are you sure you want to delete this user?');">
+            <button type="submit" class="btn btn-danger">Delete User</button>
+        </form>
+    </div>
+</div>
+{{end}}

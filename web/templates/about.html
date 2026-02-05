@@ -1,0 +1,13 @@
+{{define "generic_content"}}
+<div class="text-center">
+    <img src="{{urlFor "static" "filename" "img/otter.png"}}" alt="An Otter Wiki" style="max-width: 200px;">
+    <h1>GopherWiki</h1>
+    <p class="lead">A minimalistic wiki powered by Go, markdown and git.</p>
+    <p>Version: {{.version}}</p>
+    <hr>
+    <p>Based on <a href="https://otterwiki.com">An Otter Wiki</a></p>
+    <p>
+        <a href="https://github.com/redimp/otterwiki" target="_blank">GitHub</a>
+    </p>
+</div>
+{{end}}

@@ -1,0 +1,41 @@
+{{define "generic_content"}}
+<h1>Admin Dashboard</h1>
+
+<div class="row">
+    <div class="col-md-4">
+        <div class="card mb-20">
+            <div class="card-body">
+                <h5 class="card-title">Users</h5>
+                <p class="card-text display-4">{{.user_count}}</p>
+                <a href="/-/admin/users" class="btn btn-primary">Manage Users</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card mb-20">
+            <div class="card-body">
+                <h5 class="card-title">Pages</h5>
+                <p class="card-text display-4">{{.page_count}}</p>
+                <a href="/-/pageindex" class="btn btn-primary">View Pages</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card mb-20">
+            <div class="card-body">
+                <h5 class="card-title">Version</h5>
+                <p class="card-text display-4">{{.version}}</p>
+                <a href="/-/about" class="btn btn-secondary">About</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<h2>Quick Links</h2>
+<ul class="list-group">
+    <li class="list-group-item"><a href="/-/admin/users">User Management</a></li>
+    <li class="list-group-item"><a href="/-/admin/settings">Site Settings</a></li>
+    <li class="list-group-item"><a href="/-/changelog">Changelog</a></li>
+    <li class="list-group-item"><a href="/-/feed">RSS Feed</a></li>
+</ul>
+{{end}}

@@ -1,0 +1,17 @@
+{{define "generic_content"}}
+{{if .breadcrumbs}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/"><i class="fas fa-home"></i></a></li>
+        {{range .breadcrumbs}}
+        <li class="breadcrumb-item"><a href="/{{.Path}}">{{.Name}}</a></li>
+        {{end}}
+        <li class="breadcrumb-item active">Source</li>
+    </ol>
+</nav>
+{{end}}
+
+<h1>{{.pagename}} - Source</h1>
+
+<pre><code>{{.source}}</code></pre>
+{{end}}

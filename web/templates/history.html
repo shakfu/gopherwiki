@@ -1,0 +1,50 @@
+{{define "generic_content"}}
+{{if .breadcrumbs}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/"><i class="fas fa-home"></i></a></li>
+        {{range .breadcrumbs}}
+        <li class="breadcrumb-item"><a href="/{{.Path}}">{{.Name}}</a></li>
+        {{end}}
+        <li class="breadcrumb-item active">History</li>
+    </ol>
+</nav>
+{{end}}
+
+<h1>{{.pagename}} - History</h1>
+
+<p>
+    <a href="/{{.pagepath}}" class="btn btn-sm btn-outline-secondary">View Page</a>
+    <a href="/{{.pagepath}}/blame" class="btn btn-sm btn-outline-secondary">Blame</a>
+    <a href="/{{.pagepath}}/source" class="btn btn-sm btn-outline-secondary">Source</a>
+</p>
+
+<form action="/{{.pagepath}}/diff" method="get">
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th></th>
+            <th>Revision</th>
+            <th>Date</th>
+            <th>Author</th>
+            <th>Message</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range $i, $entry := .log}}
+        <tr>
+            <td>
+                <input type="radio" name="rev_a" value="{{$entry.revision}}" {{if eq $entry.revision $.rev_a}}checked{{end}}>
+                <input type="radio" name="rev_b" value="{{$entry.revision}}" {{if eq $entry.revision $.rev_b}}checked{{end}}>
+            </td>
+            <td><a href="{{$entry.url}}">{{$entry.revision}}</a></td>
+            <td>{{formatDatetime $entry.datetime "medium"}}</td>
+            <td>{{$entry.author_name}}</td>
+            <td>{{$entry.message}}</td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+<button type="submit" class="btn btn-primary">Compare Selected</button>
+</form>
+{{end}}

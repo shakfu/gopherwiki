@@ -1,0 +1,9 @@
+{{define "generic_content"}}
+<h1>Page Index</h1>
+
+<ul class="list-unstyled">
+    {{range .pages}}
+    <li><a href="/{{.path}}">{{.name}}</a></li>
+    {{end}}
+</ul>
+{{end}}

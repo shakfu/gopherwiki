@@ -1,0 +1,92 @@
+{{define "page_head"}}
+{{if .revision}}
+<meta name="robots" content="noindex, nofollow"/>
+{{end}}
+{{end}}
+
+{{define "page_navbardropdown"}}
+<a href="/{{.pagepath}}/attachments" class="dropdown-item-with-icon">
+    <span class="dropdown-icon"><i class="fa fa-paperclip"></i></span>
+    Attachments
+</a>
+<a href="/{{.pagepath}}/history" class="dropdown-item-with-icon">
+    <span class="dropdown-icon"><i class="far fa-file-alt"></i></span>
+    History
+</a>
+<a href="/{{.pagepath}}/blame" class="dropdown-item-with-icon">
+    <span class="dropdown-icon"><i class="fas fa-people-arrows"></i></span>
+    Blame
+</a>
+<a href="/{{.pagepath}}/rename" class="dropdown-item-with-icon">
+    <span class="dropdown-icon"><i class="fas fa-exchange-alt"></i></span>
+    Rename / Move
+</a>
+<a href="/{{.pagepath}}/delete" class="dropdown-item-with-icon text-danger">
+    <span class="dropdown-icon text-danger"><i class="far fa-trash-alt"></i></span>
+    Delete
+</a>
+<div class="dropdown-divider mt-5 mb-5"></div>
+<a href="#" class="dropdown-item-with-icon" onclick="halfmoon.toggleDarkMode()">
+    <span class="dropdown-icon"><i class="far fa-moon"></i></span>
+    Toggle dark mode
+</a>
+<a href="/-/login" class="dropdown-item-with-icon">
+    <span class="dropdown-icon"><i class="fas fa-sign-in-alt"></i></span>
+    Login
+</a>
+{{end}}
+
+{{define "page_navbar"}}
+<a href="/{{.pagepath}}/edit" id="edit-page-btn" class="btn btn-primary" role="button" title="Edit Page (e)"><i class="fas fa-pencil-alt"></i></a>
+{{end}}
+
+{{define "page_breadcrumbs"}}
+{{if .breadcrumbs}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/"><i class="fas fa-home"></i></a></li>
+        {{range .breadcrumbs}}
+        <li class="breadcrumb-item"><a href="/{{.Path}}">{{.Name}}</a></li>
+        {{end}}
+    </ol>
+</nav>
+{{end}}
+{{end}}
+
+{{define "page_content"}}
+<div class="page">
+{{.htmlcontent}}
+</div>
+{{end}}
+
+{{define "page_extra_nav"}}
+{{if .toc}}
+<div class="col-xl-3 d-none d-xl-block extra-nav-container" id="column-extra">
+    <div class="extra-nav" id="extra-nav">
+        <div id="extranav-toc">
+            <nav class="toc">
+                <ul class="toc-list">
+                {{range .toc}}
+                <li class="toc-item toc-item-h{{.Level}}">
+                    <a href="#{{.Anchor}}">{{.Raw}}</a>
+                </li>
+                {{end}}
+                </ul>
+            </nav>
+        </div>
+    </div>
+</div>
+{{end}}
+{{end}}
+
+{{define "page_js"}}
+{{if .library_requirements}}
+{{if .library_requirements.RequiresMermaid}}
+<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad:true});</script>
+{{end}}
+{{if .library_requirements.RequiresMathJax}}
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+{{end}}
+{{end}}
+{{end}}

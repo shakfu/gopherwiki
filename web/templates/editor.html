@@ -1,0 +1,246 @@
+{{define "editor_head"}}
+<style type="text/css" media="screen">
+.editor-wrapper {
+    width: 100%;
+}
+#content_editor {
+    width: 100%;
+    min-height: 400px;
+    font-family: monospace;
+    padding: 10px;
+}
+</style>
+<link href="{{urlFor "static" "filename" "css/codemirror.css" | debugUnixtime}}" rel="stylesheet" />
+<link href="{{urlFor "static" "filename" "css/codemirror-theme.css" | debugUnixtime}}" rel="stylesheet" />
+{{end}}
+
+{{define "editor_navbar_editor"}}
+<button onclick="otterwiki_editor.undo()" class="btn btn-editor btn-xs ml-10" title="Undo"><i class="fas fa-undo"></i></button>
+<button onclick="otterwiki_editor.redo()" class="btn btn-editor btn-xs" style="margin-left: 0.1rem;" title="Redo"><i class="fas fa-redo"></i></button>
+<button onclick="otterwiki_editor.bold()" class="btn btn-editor btn-xs ml-5 hidden-sm-and-down" title="Bold"><i class="fa fa-bold"></i></button>
+<button onclick="otterwiki_editor.italic()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Italic"><i class="fa fa-italic"></i></button>
+<button onclick="otterwiki_editor.header()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Header"><i class="fa fa-heading"></i></button>
+<button onclick="otterwiki_editor.link()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Link"><i class="fa fa-link"></i></button>
+{{end}}
+
+{{define "editor_bodytop"}}
+<div class="modal" id="modal-commit" tabindex="-1" role="dialog">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content">
+      <a href="#" class="close" onclick="otterwiki.toggleModal('modal-commit')" role="button" aria-label="Close">
+        <span aria-hidden="true">&times;</span>
+      </a>
+      <h5 class="modal-title">Save {{.pagename}}</h5>
+      <form id="saveform" action="/{{.pagepath}}/save" method="post" autocomplete="off">
+      <input id="save_content" type="hidden" name="content" value="">
+        <div class="form-group">
+            <label for="commit-message" class="required">Commit Message</label>
+            <input name="commit" id="commit-message" type="text" class="form-control" placeholder="Your commit message here" required="required">
+        </div>
+        <input class="btn btn-primary btn-block" type="submit" value="Save">
+      </form>
+    </div>
+  </div>
+</div>
+{{end}}
+
+{{define "editor_content"}}
+<h4>Editing: {{.pagename}}</h4>
+<form id="dummy">
+<textarea id="content_editor" name="content_editor">{{.content_editor}}</textarea>
+</form>
+<div id="editor_block" style="display: block;"></div>
+<div id="preview_block" style="display: none;"></div>
+{{end}}
+
+{{define "editor_navbar"}}
+<a href="/{{.pagepath}}" class="btn btn-danger mr-5" role="button" title="Cancel"><i class="fas fa-window-close"></i></a>
+<button id="save-page-btn" class="btn btn-success mr-5" onclick="otterwiki.toggleModal('modal-commit')" title="Save"><i class="fas fa-save"></i></button>
+<button id="preview_btn" class="btn btn-primary" style="width: 1rem;" title="Preview"><i class="far fa-eye"></i></button>
+<button id="editor_btn" class="btn btn-primary" style="width: 1rem; display:none;" title="Edit"><i class="fas fa-pencil-alt"></i></button>
+{{end}}
+
+{{define "editor_extra_nav"}}
+<div class="col-xl-3 d-none d-xl-block extra-nav-container" id="column-extra">
+    <div class="extra-nav" id="extra-nav">
+        <div id="extranav-attachments">
+            <h5 class="sidebar-title"><a class="sidebar-title-link" href="/{{.pagepath}}/attachments">Attachments <i class="fa fa-paperclip"></i></a></h5>
+            <div class="sidebar-divider"></div>
+            {{if .files}}
+            <select class="form-control" id="attachment-filename">
+              <option value="" selected="selected" disabled="disabled">Select an attachment</option>
+              {{range .files}}
+              <option value="{{.filename}}">{{.filename}}</option>
+              {{end}}
+            </select>
+            {{else}}
+            <p class="text-muted">No attachments yet.</p>
+            {{end}}
+        </div>
+    </div>
+</div>
+{{end}}
+
+{{define "editor_js"}}
+<script src="{{urlFor "static" "filename" "js/codemirror.min.js" | debugUnixtime}}" type="text/javascript" charset="utf-8"></script>
+<script src="{{urlFor "static" "filename" "js/cm-continuelist.js" | debugUnixtime}}" type="text/javascript" charset="utf-8"></script>
+<script src="{{urlFor "static" "filename" "js/cm-modes.min.js" | debugUnixtime}}" type="text/javascript" charset="utf-8"></script>
+<script type="text/javascript">
+    const pagepath = "{{.pagepath}}";
+    const currentRevision = "{{.revision}}";
+    let draftLoaded = false;
+    let lastSavedContent = "";
+    let autosaveTimer = null;
+
+    const cm_editor = CodeMirror.fromTextArea(document.getElementById("content_editor"), {
+        mode: 'markdown',
+        lineNumbers: true,
+        theme: "otterwiki",
+        lineWrapping: true,
+        indentWithTabs: false,
+        spellcheck: true,
+        inputStyle: 'contenteditable',
+        indentUnit: 4,
+        autofocus: true,
+        extraKeys: {
+            "Enter": "newlineAndIndentContinueMarkdownList",
+            "Shift-Tab": "indentLess",
+            "Tab": (cm) => {
+                if (cm.somethingSelected()) {
+                    cm.execCommand('indentMore');
+                } else {
+                    cm.execCommand('insertSoftTab');
+                }
+            }
+        },
+    });
+    cm_editor.setCursor({ line: {{.cursor_line}}, ch: {{.cursor_ch}} });
+    lastSavedContent = cm_editor.getValue();
+
+    const preview_btn = document.querySelector("#preview_btn");
+    const editor_btn = document.querySelector("#editor_btn");
+    const editor_block = cm_editor.display.wrapper;
+    const preview_block = document.querySelector("#preview_block");
+
+    /* Draft functions */
+    function saveDraft() {
+        const content = cm_editor.getValue();
+        if (content === lastSavedContent) {
+            return; // No changes
+        }
+        const cursor = cm_editor.getCursor();
+        const formData = new FormData();
+        formData.append("content", content);
+        formData.append("cursor_line", cursor.line);
+        formData.append("cursor_ch", cursor.ch);
+
+        fetch("/" + pagepath + "/draft", {
+            method: 'POST',
+            body: formData,
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                lastSavedContent = content;
+                console.log("Draft saved");
+            }
+        })
+        .catch(err => console.log("Draft save error:", err));
+    }
+
+    function deleteDraft() {
+        fetch("/" + pagepath + "/draft", {
+            method: 'DELETE',
+        }).catch(err => console.log("Draft delete error:", err));
+    }
+
+    function loadDraft() {
+        fetch("/" + pagepath + "/draft")
+        .then(response => response.json())
+        .then(data => {
+            if (data.found && data.content) {
+                // Check if draft is for current revision or newer
+                if (data.revision === currentRevision || currentRevision === "") {
+                    if (data.content !== cm_editor.getValue()) {
+                        if (confirm("A draft was found. Do you want to restore it?")) {
+                            cm_editor.setValue(data.content);
+                            cm_editor.setCursor({ line: data.cursor_line, ch: data.cursor_ch });
+                            lastSavedContent = data.content;
+                        } else {
+                            deleteDraft();
+                        }
+                    }
+                }
+            }
+            draftLoaded = true;
+        })
+        .catch(err => {
+            console.log("Draft load error:", err);
+            draftLoaded = true;
+        });
+    }
+
+    // Load draft on page load
+    loadDraft();
+
+    // Autosave every 30 seconds
+    autosaveTimer = setInterval(saveDraft, 30000);
+
+    // Save draft on editor change (debounced)
+    let changeTimer = null;
+    cm_editor.on("change", function() {
+        if (changeTimer) clearTimeout(changeTimer);
+        changeTimer = setTimeout(saveDraft, 5000); // Save 5 seconds after last change
+    });
+
+    /* save */
+    document.getElementById('saveform').onsubmit = function() {
+        const content_editor = cm_editor.getValue();
+        document.getElementById('save_content').value = content_editor;
+        // Delete draft on successful save
+        deleteDraft();
+        if (autosaveTimer) clearInterval(autosaveTimer);
+    };
+
+    /* preview */
+    preview_btn.onclick = function() {
+        preview_block.style.display = 'block';
+        editor_block.style.display = 'none';
+        editor_btn.style.display = '';
+        preview_btn.style.display = 'none';
+
+        const formData = new FormData();
+        formData.append("content", cm_editor.getValue());
+
+        fetch("/{{.pagepath}}/preview", {
+                method: 'POST',
+                body: formData,
+            })
+            .then(function (response) {
+                return response.json();
+            })
+            .then(function (data) {
+                preview_block.innerHTML = data.preview_content;
+            })
+            .catch(function () {
+                console.log('Error fetching preview ...');
+            });
+    }
+
+    /* edit */
+    editor_btn.onclick = function() {
+        preview_block.style.display = 'none';
+        editor_block.style.display = 'block';
+        editor_btn.style.display = 'none';
+        preview_btn.style.display = '';
+        cm_editor.focus();
+    }
+
+    /* Save draft before leaving page */
+    window.addEventListener('beforeunload', function(e) {
+        if (cm_editor.getValue() !== lastSavedContent) {
+            saveDraft();
+        }
+    });
+</script>
+{{end}}

@@ -1,0 +1,80 @@
+{{define "generic_content"}}
+<h1>Site Settings</h1>
+
+<p><a href="/-/admin" class="btn btn-secondary btn-sm">Back to Dashboard</a></p>
+
+{{if .flashes}}
+{{range .flashes}}
+<div class="alert alert-{{if .Category}}{{.Category}}{{else}}info{{end}}" role="alert">
+    {{if .Message}}{{.Message}}{{else}}{{.}}{{end}}
+</div>
+{{end}}
+{{end}}
+
+<div class="alert alert-info" role="alert">
+    <strong>Note:</strong> Most settings are configured via environment variables and require a restart to take effect.
+    See the documentation for available configuration options.
+</div>
+
+<div class="card mb-20">
+    <div class="card-body">
+        <h5 class="card-title">Current Settings</h5>
+        <table class="table table-sm">
+            <tbody>
+                <tr>
+                    <td><strong>Site Name</strong></td>
+                    <td>{{.site_settings.SiteName}}</td>
+                </tr>
+                <tr>
+                    <td><strong>Site URL</strong></td>
+                    <td>{{.site_settings.SiteURL}}</td>
+                </tr>
+                <tr>
+                    <td><strong>Home Page</strong></td>
+                    <td>{{if .site_settings.HomePage}}{{.site_settings.HomePage}}{{else}}Home{{end}}</td>
+                </tr>
+                <tr>
+                    <td><strong>Read Access</strong></td>
+                    <td>{{.site_settings.ReadAccess}}</td>
+                </tr>
+                <tr>
+                    <td><strong>Write Access</strong></td>
+                    <td>{{.site_settings.WriteAccess}}</td>
+                </tr>
+                <tr>
+                    <td><strong>Attachment Access</strong></td>
+                    <td>{{.site_settings.AttachmentAccess}}</td>
+                </tr>
+                <tr>
+                    <td><strong>Auto Approval</strong></td>
+                    <td>{{if .site_settings.AutoApproval}}Enabled{{else}}Disabled{{end}}</td>
+                </tr>
+                <tr>
+                    <td><strong>Registration</strong></td>
+                    <td>{{if .site_settings.DisableRegistration}}Disabled{{else}}Enabled{{end}}</td>
+                </tr>
+                <tr>
+                    <td><strong>Email Confirmation</strong></td>
+                    <td>{{if .site_settings.EmailNeedsConfirmation}}Required{{else}}Not Required{{end}}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <h5 class="card-title">Environment Variables</h5>
+        <p class="text-muted">Configure these settings by setting environment variables:</p>
+        <pre><code>SITE_NAME="My Wiki"
+SITE_URL="https://wiki.example.com"
+HOME_PAGE="Home"
+READ_ACCESS="ANONYMOUS"   # ANONYMOUS, REGISTERED, or APPROVED
+WRITE_ACCESS="REGISTERED" # ANONYMOUS, REGISTERED, or APPROVED
+ATTACHMENT_ACCESS="REGISTERED"
+AUTO_APPROVAL=false
+DISABLE_REGISTRATION=false
+EMAIL_NEEDS_CONFIRMATION=true</code></pre>
+    </div>
+</div>
+{{end}}

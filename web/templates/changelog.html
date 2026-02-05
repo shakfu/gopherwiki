@@ -1,0 +1,30 @@
+{{define "generic_content"}}
+<h1>Changelog</h1>
+
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>Revision</th>
+            <th>Date</th>
+            <th>Author</th>
+            <th>Message</th>
+            <th>Files</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .log}}
+        <tr>
+            <td><a href="/-/commit/{{.Revision}}">{{.Revision}}</a></td>
+            <td>{{formatDatetime .Datetime "medium"}}</td>
+            <td>{{.AuthorName}}</td>
+            <td>{{.Message}}</td>
+            <td>
+                {{range .Files}}
+                <span class="badge badge-secondary">{{.}}</span>
+                {{end}}
+            </td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+{{end}}

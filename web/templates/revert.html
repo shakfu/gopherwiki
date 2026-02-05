@@ -1,0 +1,36 @@
+{{define "generic_content"}}
+<h1>Revert Commit</h1>
+
+<div class="card mb-20">
+    <div class="card-body">
+        <h5 class="card-title">{{.commit.Message}}</h5>
+        <p class="card-text text-muted">
+            <strong>Author:</strong> {{.commit.AuthorName}}<br>
+            <strong>Date:</strong> {{formatDatetime .commit.Datetime "medium"}}<br>
+            <strong>Revision:</strong> {{.commit.Revision}}
+        </p>
+        {{if .commit.Files}}
+        <p class="card-text">
+            <strong>Files affected:</strong><br>
+            {{range .commit.Files}}
+            <span class="badge badge-secondary">{{.}}</span>
+            {{end}}
+        </p>
+        {{end}}
+    </div>
+</div>
+
+<div class="alert alert-warning" role="alert">
+    <strong>Warning:</strong> This will create a new commit that undoes the changes from the selected commit.
+</div>
+
+<form action="{{urlFor "revert" "revision" .commit.Revision}}" method="post">
+    <div class="form-group">
+        <label for="message">Commit message (optional)</label>
+        <input type="text" name="message" id="message" class="form-control"
+               value="Revert &quot;{{.commit.Message}}&quot;" placeholder="Revert commit message">
+    </div>
+    <button type="submit" class="btn btn-warning">Revert Commit</button>
+    <a href="{{urlFor "commit" "revision" .commit.Revision}}" class="btn btn-secondary">Cancel</a>
+</form>
+{{end}}

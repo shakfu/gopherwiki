@@ -1,0 +1,16 @@
+{{define "generic_content"}}
+<h1>{{.title}}</h1>
+
+<div class="alert alert-danger">
+    <strong>Warning!</strong> This action cannot be undone.
+</div>
+
+<form action="/{{.pagepath}}/delete" method="post">
+    <div class="form-group">
+        <label for="message">Commit message (optional)</label>
+        <input type="text" name="message" id="message" class="form-control" placeholder="Delete {{.pagename}}">
+    </div>
+    <a href="/{{.pagepath}}" class="btn">Cancel</a>
+    <button type="submit" class="btn btn-danger">Delete</button>
+</form>
+{{end}}

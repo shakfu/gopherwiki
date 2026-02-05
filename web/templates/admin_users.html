@@ -1,0 +1,46 @@
+{{define "generic_content"}}
+<h1>User Management</h1>
+
+<p><a href="/-/admin" class="btn btn-secondary btn-sm">Back to Dashboard</a></p>
+
+{{if .flashes}}
+{{range .flashes}}
+<div class="alert alert-{{if .Category}}{{.Category}}{{else}}info{{end}}" role="alert">
+    {{if .Message}}{{.Message}}{{else}}{{.}}{{end}}
+</div>
+{{end}}
+{{end}}
+
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Approved</th>
+            <th>Admin</th>
+            <th>Permissions</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .users}}
+        <tr>
+            <td>{{.ID}}</td>
+            <td>{{.GetName}}</td>
+            <td>{{.GetEmail}}</td>
+            <td>{{if .Approved}}<span class="badge badge-success">Yes</span>{{else}}<span class="badge badge-secondary">No</span>{{end}}</td>
+            <td>{{if .Admin}}<span class="badge badge-primary">Yes</span>{{else}}<span class="badge badge-secondary">No</span>{{end}}</td>
+            <td>
+                {{if .CanRead}}<span class="badge badge-info">Read</span>{{end}}
+                {{if .CanWrite}}<span class="badge badge-info">Write</span>{{end}}
+                {{if .CanUpload}}<span class="badge badge-info">Upload</span>{{end}}
+            </td>
+            <td>
+                <a href="/-/admin/users/{{.ID}}" class="btn btn-sm btn-primary">Edit</a>
+            </td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+{{end}}

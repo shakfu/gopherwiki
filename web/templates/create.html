@@ -1,0 +1,12 @@
+{{define "generic_content"}}
+<h1>Create a new page</h1>
+
+<form action="/-/create" method="post">
+    <div class="form-group">
+        <label for="pagepath">Page name</label>
+        <input type="text" name="pagepath" id="pagepath" class="form-control" placeholder="Enter page name" required>
+        <small class="form-text text-muted">Use "/" for subpages, e.g., "Category/PageName"</small>
+    </div>
+    <button type="submit" class="btn btn-primary">Create</button>
+</form>
+{{end}}

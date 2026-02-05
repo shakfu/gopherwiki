@@ -1,0 +1,28 @@
+{{define "generic_content"}}
+{{if .breadcrumbs}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/"><i class="fas fa-home"></i></a></li>
+        {{range .breadcrumbs}}
+        <li class="breadcrumb-item"><a href="/{{.Path}}">{{.Name}}</a></li>
+        {{end}}
+        <li class="breadcrumb-item active">Blame</li>
+    </ol>
+</nav>
+{{end}}
+
+<h1>{{.pagename}} - Blame</h1>
+
+<table class="table table-sm table-striped">
+    <tbody>
+        {{range .blame}}
+        <tr>
+            <td class="text-muted">{{.Revision}}</td>
+            <td class="text-muted">{{.AuthorName}}</td>
+            <td class="text-right text-muted">{{.LineNumber}}</td>
+            <td><pre style="margin: 0; white-space: pre-wrap;">{{.Line}}</pre></td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+{{end}}

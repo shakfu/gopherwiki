@@ -1,0 +1,53 @@
+{{define "generic_content"}}
+<h1>Commit {{.commit.Revision}}</h1>
+
+<div class="card mb-20">
+    <div class="card-body">
+        <h5 class="card-title">{{.commit.Message}}</h5>
+        <p class="card-text text-muted">
+            <strong>Author:</strong> {{.commit.AuthorName}} &lt;{{.commit.AuthorEmail}}&gt;<br>
+            <strong>Date:</strong> {{formatDatetime .commit.Datetime "long"}}<br>
+            <strong>Revision:</strong> {{.commit.RevisionFull}}
+        </p>
+        {{if .commit.Files}}
+        <p class="card-text">
+            <strong>Changed files:</strong><br>
+            {{range .commit.Files}}
+            <span class="badge badge-secondary">{{.}}</span>
+            {{end}}
+        </p>
+        {{end}}
+        <a href="{{urlFor "revert" "revision" .commit.Revision}}" class="btn btn-warning btn-sm">Revert this commit</a>
+    </div>
+</div>
+
+{{if .diff}}
+<h2>Changes</h2>
+<pre class="diff-view"><code>{{range .diff_lines}}<span class="diff-{{.Type}}">{{.Content}}</span>
+{{end}}</code></pre>
+
+<style>
+.diff-view {
+    background: #f8f9fa;
+    padding: 10px;
+    overflow-x: auto;
+}
+.diff-add {
+    background-color: #e6ffec;
+    display: block;
+}
+.diff-remove {
+    background-color: #ffebe9;
+    display: block;
+}
+.diff-header {
+    color: #0550ae;
+    font-weight: bold;
+    display: block;
+}
+.diff-context {
+    display: block;
+}
+</style>
+{{end}}
+{{end}}

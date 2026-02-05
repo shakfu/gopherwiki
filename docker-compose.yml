@@ -1,19 +1,35 @@
 ---
 #
-# This docker-compose.yml is for running the latest development version
-# of An Otter Wiki.
+# Docker Compose for GopherWiki
 #
-# Please read the Installation guide <https://otterwiki.com/Installation>
-# to get started.
+# Usage:
+#   docker-compose up -d
+#
+# Environment variables can be set in .env file or passed directly.
 #
 services:
   web:
     build: .
     restart: unless-stopped
     ports:
-      # forward the http port to 8080
-      - "8080:80"
+      - "8080:8080"
     volumes:
       # mount the local directory ./app-data into the container
-      # (so settings, database and repository are accessible)
       - ./app-data:/app-data
+    environment:
+      # Required: Generate a secure random key
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      # Site configuration
+      - SITE_NAME=${SITE_NAME:-GopherWiki}
+      - SITE_URL=${SITE_URL:-http://localhost:8080}
+      - HOME_PAGE=${HOME_PAGE:-Home}
+      # Access control (ANONYMOUS, REGISTERED, or APPROVED)
+      - READ_ACCESS=${READ_ACCESS:-ANONYMOUS}
+      - WRITE_ACCESS=${WRITE_ACCESS:-REGISTERED}
+      - ATTACHMENT_ACCESS=${ATTACHMENT_ACCESS:-REGISTERED}
+      # User registration
+      - AUTO_APPROVAL=${AUTO_APPROVAL:-true}
+      - DISABLE_REGISTRATION=${DISABLE_REGISTRATION:-false}
+      # Repository and database paths (inside container)
+      - REPOSITORY=/app-data/repository
+      - SQLALCHEMY_DATABASE_URI=sqlite:///app-data/gopherwiki.db

@@ -1,95 +1,59 @@
-#
-# compile stage
-#
-FROM debian:12.11-slim AS compile-stage
-LABEL maintainer="Ralph Thesen <mail@redimp.de>"
-# install python environment
-RUN --mount=target=/var/cache/apt,type=cache,sharing=locked \
-    rm /etc/apt/apt.conf.d/docker-clean && \
-    apt-get update -y && \
-    apt-get upgrade -y && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3.11 python3.11-venv \
-    python3-pip libjpeg-dev zlib1g-dev build-essential python3-dev libxml2-dev libxslt-dev
-# prepare environment
-RUN python3 -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
-# upgrade pip and install requirements not in otterwiki
-RUN --mount=type=cache,target=/root/.cache \
-    pip install -U pip wheel toml
-# copy src files
-COPY pyproject.toml MANIFEST.in README.md LICENSE /src/
-WORKDIR /src
+# Build stage
+FROM golang:1.24-alpine AS builder
 
-# install requirements
-RUN --mount=type=cache,target=/root/.cache \
-    python -c 'import toml; print("\n".join(toml.load("./pyproject.toml")["project"]["dependencies"]));' > requirements.txt && \
-    pip install -r requirements.txt
+# Install git (required for go-git) and gcc (for CGO/SQLite)
+RUN apk add --no-cache git gcc musl-dev
 
-# copy otterwiki source and tests
-COPY otterwiki /src/otterwiki
-COPY tests /src/tests
+WORKDIR /app
 
-# install the otterwiki
-RUN pip install .
-#
-# test stage
-#
-FROM compile-stage AS test-stage
-# install git (not needed for compiling)
-RUN --mount=target=/var/lib/apt/lists,type=cache,sharing=locked \
-    apt-get update -y && apt-get install -y --no-install-recommends git
-# install the dev environment
-RUN --mount=type=cache,target=/root/.cache \
-    pip install '.[dev]'
-RUN --mount=type=cache,target=/root/.cache \
-    tox
-# configure tox as default command when the test-stage is executed
-CMD ["tox"]
-#
-# production stage
-#
-FROM debian:12.11-slim
-# arg for marking dev images
-ARG GIT_TAG
-ENV GIT_TAG=$GIT_TAG
-ENV PUID=33
-ENV PGID=33
-# environment variables (I'm not sure if anyone ever would modify this)
-ENV OTTERWIKI_SETTINGS=/app-data/settings.cfg
-ENV OTTERWIKI_REPOSITORY=/app-data/repository
-# install supervisord and python
-RUN --mount=target=/var/cache/apt,type=cache,sharing=locked \
-    apt-get -y update && \
-    apt-get upgrade -y && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    nginx supervisor git openssh-client \
-    python3.11 python3-wheel python3-venv libpython3.11 \
-    uwsgi uwsgi-plugin-python3 curl \
-    && ln -sf /dev/stdout /var/log/nginx/access.log \
-    && ln -sf /dev/stderr /var/log/nginx/error.log \
-    && rm -rf /var/lib/apt/lists/*
-# copy virtual environment
-COPY --from=compile-stage /opt/venv /opt/venv
-# Make sure we use the virtualenv:
-ENV PATH="/opt/venv/bin:$PATH"
-# create directories
-RUN mkdir -p /app-data /app/otterwiki
+# Copy go mod files first for better caching
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the binary with CGO enabled for SQLite
+RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o gopherwiki ./cmd/gopherwiki
+
+# Runtime stage
+FROM alpine:latest
+
+# Install git (needed for git operations) and ca-certificates
+RUN apk add --no-cache git ca-certificates tzdata
+
+WORKDIR /app
+
+# Copy binary from builder
+COPY --from=builder /app/gopherwiki .
+
+# Copy static files and templates
+COPY --from=builder /app/web ./web
+
+# Create data directory for wiki repository and database
+RUN mkdir -p /app-data/repository && \
+    addgroup -g 1000 gopherwiki && \
+    adduser -u 1000 -G gopherwiki -h /app -D gopherwiki && \
+    chown -R gopherwiki:gopherwiki /app-data
+
 VOLUME /app-data
-RUN chown -R www-data:www-data /app-data
-# copy static files for nginx
-COPY otterwiki/static /app/otterwiki/static
-# copy supervisord configs (nginx is configured in the entrypoint.sh)
-COPY docker/uwsgi.ini /app/uwsgi.ini
-COPY docker/supervisord.conf /etc/supervisor/conf.d/
-COPY --chmod=0755 docker/stop-supervisor.sh /etc/supervisor/
-# Copy the entrypoint that will generate Nginx additional configs
-COPY --chmod=0755 ./docker/entrypoint.sh /entrypoint.sh
-# configure a healthcheck
-HEALTHCHECK --interval=5m --timeout=3s --retries=3  --start-period=30s --start-interval=5s \
-    CMD curl -A "docker-healthcheck" -f http://localhost:8080/-/healthz || exit 1
-# configure the entrypoint
-ENTRYPOINT ["/entrypoint.sh"]
-# and the default command: supervisor which takes care of nginx and uWSGI
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/supervisord.conf"]
 
-# vim:set et ts=8 sts=4 sw=4 ai fenc=utf-8:
+# Set environment variables
+ENV REPOSITORY=/app-data/repository
+ENV SQLALCHEMY_DATABASE_URI=sqlite:///app-data/gopherwiki.db
+ENV SECRET_KEY=change-me-in-production
+ENV SITE_NAME="GopherWiki"
+ENV SITE_URL="http://localhost:8080"
+
+# Switch to non-root user
+USER gopherwiki
+
+# Expose port
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/-/health || exit 1
+
+# Run the application
+CMD ["./gopherwiki"]

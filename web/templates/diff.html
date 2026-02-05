@@ -1,0 +1,56 @@
+{{define "generic_content"}}
+{{if .breadcrumbs}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/"><i class="fas fa-home"></i></a></li>
+        {{range .breadcrumbs}}
+        <li class="breadcrumb-item"><a href="/{{.Path}}">{{.Name}}</a></li>
+        {{end}}
+        <li class="breadcrumb-item active">Diff</li>
+    </ol>
+</nav>
+{{end}}
+
+<h1>{{.pagename}} - Diff</h1>
+
+<p>
+    Comparing revision <strong>{{.rev_a}}</strong> with <strong>{{.rev_b}}</strong>
+</p>
+
+<p>
+    <a href="/{{.pagepath}}?revision={{.rev_a}}" class="btn btn-sm btn-outline-secondary">View {{.rev_a}}</a>
+    <a href="/{{.pagepath}}?revision={{.rev_b}}" class="btn btn-sm btn-outline-secondary">View {{.rev_b}}</a>
+    <a href="/{{.pagepath}}/history" class="btn btn-sm btn-outline-secondary">Back to History</a>
+</p>
+
+{{if .diff_lines}}
+<pre class="diff-view"><code>{{range .diff_lines}}<span class="diff-{{.Type}}">{{.Content}}</span>
+{{end}}</code></pre>
+
+<style>
+.diff-view {
+    background: #f8f9fa;
+    padding: 10px;
+    overflow-x: auto;
+}
+.diff-add {
+    background-color: #e6ffec;
+    display: block;
+}
+.diff-remove {
+    background-color: #ffebe9;
+    display: block;
+}
+.diff-header {
+    color: #0550ae;
+    font-weight: bold;
+    display: block;
+}
+.diff-context {
+    display: block;
+}
+</style>
+{{else}}
+<pre class="bg-light p-10"><code>{{.diff}}</code></pre>
+{{end}}
+{{end}}
