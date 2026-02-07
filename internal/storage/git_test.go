@@ -1,8 +1,11 @@
 package storage
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -204,5 +207,192 @@ func TestGitStorageBlame(t *testing.T) {
 		if line.LineNumber != i+1 {
 			t.Errorf("Line %d number = %d, want %d", i, line.LineNumber, i+1)
 		}
+	}
+}
+
+func TestPathTraversalProtection(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "gopherwiki-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	gs, err := NewGitStorage(tmpDir, true)
+	if err != nil {
+		t.Fatalf("Failed to create GitStorage: %v", err)
+	}
+
+	author := Author{Name: "Test User", Email: "test@example.com"}
+
+	// Store a legitimate file first
+	gs.Store("test.md", "# Test\n", "Create", author)
+
+	traversalPaths := []string{
+		"../etc/passwd",
+		"../../etc/shadow",
+		"foo/../../etc/passwd",
+		"/etc/passwd",
+		"/absolute/path.md",
+	}
+
+	for _, p := range traversalPaths {
+		t.Run("Exists_"+p, func(t *testing.T) {
+			if gs.Exists(p) {
+				t.Errorf("Exists(%q) should return false for traversal path", p)
+			}
+		})
+
+		t.Run("Load_"+p, func(t *testing.T) {
+			_, err := gs.Load(p, "")
+			if !errors.Is(err, ErrPathTraversal) {
+				t.Errorf("Load(%q) should return ErrPathTraversal, got: %v", p, err)
+			}
+		})
+
+		t.Run("Store_"+p, func(t *testing.T) {
+			_, err := gs.Store(p, "malicious", "bad", author)
+			if !errors.Is(err, ErrPathTraversal) {
+				t.Errorf("Store(%q) should return ErrPathTraversal, got: %v", p, err)
+			}
+		})
+
+		t.Run("Delete_"+p, func(t *testing.T) {
+			err := gs.Delete(p, "bad", author)
+			if !errors.Is(err, ErrPathTraversal) {
+				t.Errorf("Delete(%q) should return ErrPathTraversal, got: %v", p, err)
+			}
+		})
+
+		t.Run("Mtime_"+p, func(t *testing.T) {
+			_, err := gs.Mtime(p)
+			if !errors.Is(err, ErrPathTraversal) {
+				t.Errorf("Mtime(%q) should return ErrPathTraversal, got: %v", p, err)
+			}
+		})
+
+		t.Run("Size_"+p, func(t *testing.T) {
+			_, err := gs.Size(p)
+			if !errors.Is(err, ErrPathTraversal) {
+				t.Errorf("Size(%q) should return ErrPathTraversal, got: %v", p, err)
+			}
+		})
+	}
+
+	// Legitimate paths should still work
+	t.Run("legitimate_path", func(t *testing.T) {
+		if !gs.Exists("test.md") {
+			t.Error("Exists(test.md) should return true")
+		}
+		content, err := gs.Load("test.md", "")
+		if err != nil {
+			t.Errorf("Load(test.md) should succeed, got: %v", err)
+		}
+		if content != "# Test\n" {
+			t.Errorf("Load(test.md) = %q, want %q", content, "# Test\n")
+		}
+	})
+
+	t.Run("legitimate_subdirectory", func(t *testing.T) {
+		_, err := gs.Store("sub/page.md", "# Sub\n", "Create sub", author)
+		if err != nil {
+			t.Errorf("Store(sub/page.md) should succeed, got: %v", err)
+		}
+		if !gs.Exists("sub/page.md") {
+			t.Error("Exists(sub/page.md) should return true")
+		}
+	})
+}
+
+func TestGitStorageConcurrentWrites(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "gopherwiki-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	gs, err := NewGitStorage(tmpDir, true)
+	if err != nil {
+		t.Fatalf("Failed to create GitStorage: %v", err)
+	}
+
+	const numGoroutines = 10
+	author := Author{Name: "Test User", Email: "test@example.com"}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			filename := fmt.Sprintf("concurrent-%d.md", n)
+			content := fmt.Sprintf("# Page %d\n", n)
+			message := fmt.Sprintf("Create page %d", n)
+			_, err := gs.Store(filename, content, message, author)
+			if err != nil {
+				errs <- fmt.Errorf("goroutine %d Store failed: %w", n, err)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		t.Error(err)
+	}
+
+	// Verify all files were created with correct content
+	for i := 0; i < numGoroutines; i++ {
+		filename := fmt.Sprintf("concurrent-%d.md", i)
+		expected := fmt.Sprintf("# Page %d\n", i)
+
+		if !gs.Exists(filename) {
+			t.Errorf("File %s should exist", filename)
+			continue
+		}
+
+		content, err := gs.Load(filename, "")
+		if err != nil {
+			t.Errorf("Load(%s) failed: %v", filename, err)
+			continue
+		}
+
+		if content != expected {
+			t.Errorf("Load(%s) = %q, want %q", filename, content, expected)
+		}
+	}
+}
+
+func TestMetadataDoesNotComputeFiles(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "gopherwiki-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	gs, err := NewGitStorage(tmpDir, true)
+	if err != nil {
+		t.Fatalf("Failed to create GitStorage: %v", err)
+	}
+
+	author := Author{Name: "Test User", Email: "test@example.com"}
+	gs.Store("page.md", "# Hello\n", "Create page", author)
+
+	meta, err := gs.Metadata("page.md", "")
+	if err != nil {
+		t.Fatalf("Metadata failed: %v", err)
+	}
+	if meta.Files != nil {
+		t.Errorf("Metadata().Files should be nil (lazy), got %v", meta.Files)
+	}
+
+	// ShowCommit should still populate Files
+	commitMeta, _, err := gs.ShowCommit(meta.Revision)
+	if err != nil {
+		t.Fatalf("ShowCommit failed: %v", err)
+	}
+	if len(commitMeta.Files) == 0 {
+		t.Error("ShowCommit().Files should be populated")
 	}
 }

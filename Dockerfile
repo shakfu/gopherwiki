@@ -14,7 +14,7 @@ RUN go mod download
 COPY . .
 
 # Build the binary with CGO enabled for SQLite
-RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o gopherwiki ./cmd/gopherwiki
+RUN CGO_ENABLED=1 GOOS=linux go build -tags fts5 -ldflags="-s -w" -o gopherwiki ./cmd/gopherwiki
 
 # Runtime stage
 FROM alpine:latest
@@ -40,8 +40,7 @@ VOLUME /app-data
 
 # Set environment variables
 ENV REPOSITORY=/app-data/repository
-ENV SQLALCHEMY_DATABASE_URI=sqlite:///app-data/gopherwiki.db
-ENV SECRET_KEY=change-me-in-production
+ENV DATABASE_URI=sqlite:///app-data/gopherwiki.db
 ENV SITE_NAME="GopherWiki"
 ENV SITE_URL="http://localhost:8080"
 

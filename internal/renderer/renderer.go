@@ -65,7 +65,7 @@ func New(cfg *config.Config) *Renderer {
 					w.WriteString(`<pre><code class="language-mermaid">`)
 					return
 				}
-				w.WriteString(`<div class="copy-to-clipboard-outer"><div class="copy-to-clipboard-inner"><button class="btn alt-dm btn-xsm copy-to-clipboard" type="button" onclick="otterwiki.copy_to_clipboard(this);"><i class="fa fa-copy" aria-hidden="true" alt="Copy to clipboard"></i></button></div><pre class="copy-to-clipboard code highlight">`)
+				w.WriteString(`<div class="copy-to-clipboard-outer"><div class="copy-to-clipboard-inner"><button class="btn alt-dm btn-xsm copy-to-clipboard" type="button" onclick="gopherwiki.copy_to_clipboard(this);"><i class="fa fa-copy" aria-hidden="true" alt="Copy to clipboard"></i></button></div><pre class="copy-to-clipboard code highlight">`)
 				if langStr != "" {
 					w.WriteString(fmt.Sprintf(`<code class="language-%s">`, langStr))
 				} else {
@@ -89,8 +89,6 @@ func New(cfg *config.Config) *Renderer {
 			highlighting.NewHighlighting(highlightOpts...),
 			&IssueRefExtension{},
 			&WikiLinkExtension{},
-			&TaskListExtension{},
-			&AlertExtension{},
 			&MarkExtension{},
 		),
 		goldmark.WithParserOptions(
@@ -99,7 +97,6 @@ func New(cfg *config.Config) *Renderer {
 		goldmark.WithRendererOptions(
 			goldmarkhtml.WithHardWraps(),
 			goldmarkhtml.WithXHTML(),
-			goldmarkhtml.WithUnsafe(),
 		),
 	)
 
@@ -112,6 +109,13 @@ func New(cfg *config.Config) *Renderer {
 // Ensure chroma and styles are used (for CSS generation)
 var _ = chroma.Coalesce
 var _ = styles.Get
+
+var (
+	slugNonAlphanumRegex = regexp.MustCompile(`[^a-z0-9\-]`)
+	slugMultiHyphenRegex = regexp.MustCompile(`-+`)
+	mermaidBlockRegex    = regexp.MustCompile(`<pre><code class="language-mermaid">([\s\S]*?)</code></pre>`)
+	wikiLinkRegex        = regexp.MustCompile(`\[\[([^\]]+)\]\]`)
+)
 
 // Render converts markdown to HTML with TOC extraction.
 func (r *Renderer) Render(source string, pageURL string) (string, []TOCEntry, LibraryRequirements) {
@@ -157,9 +161,6 @@ func (r *Renderer) Render(source string, pageURL string) (string, []TOCEntry, Li
 
 	// Post-process for mermaid blocks
 	htmlContent = processMermaidBlocks(htmlContent)
-
-	// Post-process for code blocks (add copy button wrapper)
-	htmlContent = processCodeBlocks(htmlContent)
 
 	return htmlContent, toc, requirements
 }
@@ -220,12 +221,10 @@ func slugify(s string) string {
 	s = strings.ReplaceAll(s, " ", "-")
 
 	// Remove non-alphanumeric characters except hyphens
-	reg := regexp.MustCompile(`[^a-z0-9\-]`)
-	s = reg.ReplaceAllString(s, "")
+	s = slugNonAlphanumRegex.ReplaceAllString(s, "")
 
 	// Remove consecutive hyphens
-	reg = regexp.MustCompile(`-+`)
-	s = reg.ReplaceAllString(s, "-")
+	s = slugMultiHyphenRegex.ReplaceAllString(s, "-")
 
 	// Trim leading/trailing hyphens
 	s = strings.Trim(s, "-")
@@ -237,20 +236,56 @@ func slugify(s string) string {
 func processMermaidBlocks(html string) string {
 	// Convert <pre><code class="language-mermaid">...</code></pre>
 	// to <pre class="mermaid">...</pre>
-	re := regexp.MustCompile(`<pre><code class="language-mermaid">([\s\S]*?)</code></pre>`)
-	return re.ReplaceAllString(html, `<pre class="mermaid">$1</pre>`)
-}
-
-// processCodeBlocks wraps code blocks with copy button structure.
-// Note: With highlighting extension, this is now handled by the WrapperRenderer
-func processCodeBlocks(htmlContent string) string {
-	// No-op since highlighting extension handles wrapping
-	return htmlContent
+	return mermaidBlockRegex.ReplaceAllString(html, `<pre class="mermaid">$1</pre>`)
 }
 
 // Slugify is exported for use in templates.
 func Slugify(s string) string {
 	return slugify(s)
+}
+
+// ExtractWikiLinks extracts normalized wikilink targets from markdown content.
+// If retainCase is false, targets are lowercased. Issue refs ([[#123]]) are skipped.
+func ExtractWikiLinks(content string, retainCase bool) []string {
+	matches := wikiLinkRegex.FindAllStringSubmatch(content, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]bool)
+	var result []string
+	for _, m := range matches {
+		inner := m[1]
+
+		// Skip issue refs like [[#123]]
+		if len(inner) > 0 && inner[0] == '#' {
+			continue
+		}
+
+		// Extract target (before pipe if present)
+		target := inner
+		if idx := strings.Index(inner, "|"); idx >= 0 {
+			target = inner[:idx]
+		}
+		target = strings.TrimSpace(target)
+		if target == "" {
+			continue
+		}
+
+		// Normalize: spaces to hyphens
+		target = strings.ReplaceAll(target, " ", "-")
+
+		if !retainCase {
+			target = strings.ToLower(target)
+		}
+
+		if !seen[target] {
+			seen[target] = true
+			result = append(result, target)
+		}
+	}
+
+	return result
 }
 
 // WikiLinkExtension implements the goldmark extension for [[wikilinks]].
@@ -348,21 +383,6 @@ func (r *wikiLinkRenderer) renderWikiLink(w util.BufWriter, source []byte, n ast
 	return ast.WalkContinue, nil
 }
 
-// TaskListExtension adds task list support to goldmark.
-type TaskListExtension struct{}
-
-func (e *TaskListExtension) Extend(m goldmark.Markdown) {
-	// GFM extension already includes task lists
-}
-
-// AlertExtension adds GitHub-style alerts (> [!NOTE], [!WARNING], etc.)
-type AlertExtension struct{}
-
-func (e *AlertExtension) Extend(m goldmark.Markdown) {
-	// Alert processing is done in post-processing via regex
-	// This is a placeholder for future AST-based implementation
-}
-
 // MarkExtension adds ==highlight== syntax support
 type MarkExtension struct{}
 
@@ -437,32 +457,6 @@ func (r *markRenderer) renderMark(w util.BufWriter, source []byte, n ast.Node, e
 		w.WriteString("</mark>")
 	}
 	return ast.WalkContinue, nil
-}
-
-// processAlerts converts GitHub-style alerts to styled divs
-func processAlerts(htmlContent string) string {
-	// Pattern: <blockquote>\n<p>[!TYPE]</p> or <blockquote>\n<p>[!TYPE]\nContent</p>
-	alertTypes := map[string]string{
-		"NOTE":      "info",
-		"TIP":       "success",
-		"IMPORTANT": "primary",
-		"WARNING":   "warning",
-		"CAUTION":   "danger",
-	}
-
-	for alertType, alertClass := range alertTypes {
-		// Match blockquotes starting with [!TYPE]
-		pattern := fmt.Sprintf(`<blockquote>\s*<p>\[!%s\]`, alertType)
-		re := regexp.MustCompile(pattern)
-
-		htmlContent = re.ReplaceAllStringFunc(htmlContent, func(match string) string {
-			return fmt.Sprintf(`<div class="alert alert-%s" role="alert"><strong>%s:</strong> `, alertClass, strings.Title(strings.ToLower(alertType)))
-		})
-	}
-
-	// Close the alert divs (replace </blockquote> after an alert start)
-	// This is a simplified approach - a proper AST-based solution would be more robust
-	return htmlContent
 }
 
 // IssueRefExtension implements the goldmark extension for [[#123]] issue references.

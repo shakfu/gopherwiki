@@ -226,6 +226,119 @@ func TestSlugify(t *testing.T) {
 	}
 }
 
+func TestRenderRawHTMLStripped(t *testing.T) {
+	cfg := config.Default()
+	r := New(cfg)
+
+	tests := []struct {
+		name        string
+		input       string
+		notContains []string
+	}{
+		{
+			name:        "script tag",
+			input:       `<script>alert(1)</script>`,
+			notContains: []string{"<script>", "</script>"},
+		},
+		{
+			name:        "inline script in markdown",
+			input:       "Hello <script>alert('xss')</script> world",
+			notContains: []string{"<script>", "</script>"},
+		},
+		{
+			name:        "iframe tag",
+			input:       `<iframe src="https://evil.com"></iframe>`,
+			notContains: []string{"<iframe"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			html, _, _ := r.Render(tt.input, "/test")
+			for _, notWant := range tt.notContains {
+				if strings.Contains(html, notWant) {
+					t.Errorf("Render(%q) should NOT contain %q (XSS), got:\n%s", tt.input, notWant, html)
+				}
+			}
+		})
+	}
+}
+
+func TestExtractWikiLinks(t *testing.T) {
+	tests := []struct {
+		name       string
+		content    string
+		retainCase bool
+		want       []string
+	}{
+		{
+			name:    "simple link",
+			content: "See [[Page Name]] for details.",
+			want:    []string{"page-name"},
+		},
+		{
+			name:    "pipe syntax extracts target only",
+			content: "See [[Target|Display Text]] here.",
+			want:    []string{"target"},
+		},
+		{
+			name:    "deduplication",
+			content: "Link to [[Foo]] and again [[Foo]].",
+			want:    []string{"foo"},
+		},
+		{
+			name:    "issue ref excluded",
+			content: "See [[#123]] and [[Page]].",
+			want:    []string{"page"},
+		},
+		{
+			name:    "retain case",
+			content: "See [[CamelCase]] link.",
+			retainCase: true,
+			want:    []string{"CamelCase"},
+		},
+		{
+			name:    "lowercase by default",
+			content: "See [[CamelCase]] link.",
+			want:    []string{"camelcase"},
+		},
+		{
+			name:    "no links",
+			content: "No links here.",
+			want:    nil,
+		},
+		{
+			name:    "multiple distinct links",
+			content: "[[Alpha]] and [[Beta]] and [[Gamma]]",
+			want:    []string{"alpha", "beta", "gamma"},
+		},
+		{
+			name:    "spaces become hyphens",
+			content: "[[Hello World]]",
+			want:    []string{"hello-world"},
+		},
+		{
+			name:    "issue ref with custom text excluded",
+			content: "[[#456|bug report]]",
+			want:    nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ExtractWikiLinks(tt.content, tt.retainCase)
+			if len(got) != len(tt.want) {
+				t.Fatalf("ExtractWikiLinks() = %v, want %v", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("ExtractWikiLinks()[%d] = %q, want %q", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
 func TestRenderIssueRefs(t *testing.T) {
 	cfg := config.Default()
 	r := New(cfg)

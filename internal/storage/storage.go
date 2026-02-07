@@ -8,8 +8,9 @@ import (
 
 // Errors for storage operations.
 var (
-	ErrNotFound = errors.New("storage: not found")
-	ErrStorage  = errors.New("storage: operation failed")
+	ErrNotFound      = errors.New("storage: not found")
+	ErrStorage       = errors.New("storage: operation failed")
+	ErrPathTraversal = errors.New("storage: path traversal rejected")
 )
 
 // Author represents a commit author.

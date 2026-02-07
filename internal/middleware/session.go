@@ -3,7 +3,7 @@ package middleware
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
 
 	"github.com/gorilla/sessions"
@@ -60,8 +60,11 @@ func (sm *SessionManager) Middleware(next http.Handler) http.Handler {
 		session, err := sm.store.Get(r, SessionName)
 		if err != nil {
 			// Invalid session, create a new one
-			log.Printf("Session error (creating new): %v", err)
-			session, _ = sm.store.New(r, SessionName)
+			slog.Warn("session error, creating new", "error", err)
+			session, err = sm.store.New(r, SessionName)
+			if err != nil {
+				slog.Warn("failed to create new session", "error", err)
+			}
 		}
 
 		// Get user from session

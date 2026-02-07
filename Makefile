@@ -2,19 +2,20 @@
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS := -ldflags "-X main.Version=$(VERSION)"
+TAGS := -tags fts5
 
 .PHONY: all build run test clean sqlc
 
 all: build
 
 build:
-	@go build $(LDFLAGS) -o bin/gopherwiki ./cmd/gopherwiki
+	@go build $(TAGS) $(LDFLAGS) -o bin/gopherwiki ./cmd/gopherwiki
 
 run: build
 	@./bin/gopherwiki -repo ./test-repo -port 8080
 
 test:
-	@go test -v ./...
+	@go test $(TAGS) -v ./...
 
 clean:
 	@rm -rf bin/
@@ -25,13 +26,13 @@ sqlc:
 
 # Development helpers
 dev:
-	@go run $(LDFLAGS) ./cmd/gopherwiki -repo ./test-repo -port 8080
+	@go run $(TAGS) $(LDFLAGS) ./cmd/gopherwiki -repo ./test-repo -port 8080
 
 fmt:
 	@go fmt ./...
 
 vet:
-	@go vet ./...
+	@go vet $(TAGS) ./...
 
 lint: fmt vet
 	@echo "Linting complete"

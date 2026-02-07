@@ -13,7 +13,9 @@ type Config struct {
 	// Core settings
 	Debug      bool
 	Testing    bool
+	DevMode    bool
 	LogLevel   string
+	LogFormat  string
 	Repository string
 	SecretKey  string
 
@@ -78,7 +80,6 @@ type Config struct {
 	MaxFormMemorySize  int64
 	HTMLExtraHead      string
 	HTMLExtraBody      string
-	LogLevelWerkzeug   string
 
 	// Issue tracker settings
 	IssueTags       string // Comma-separated list of available issue tags
@@ -91,6 +92,7 @@ func Default() *Config {
 		Debug:                  false,
 		Testing:                false,
 		LogLevel:               "INFO",
+		LogFormat:              "text",
 		Repository:             "",
 		SecretKey:              "CHANGE ME",
 		SiteName:               "GopherWiki",
@@ -114,7 +116,7 @@ func Default() *Config {
 		NotifyAdminsOnRegister: false,
 		NotifyUserOnApproval:   false,
 		DatabaseURI:            "sqlite:///:memory:",
-		MailDefaultSender:      "otterwiki@YOUR.ORGANIZATION.TLD",
+		MailDefaultSender:      "noreply@YOUR.ORGANIZATION.TLD",
 		MailServer:             "",
 		MailPort:               0,
 		MailUsername:           "",
@@ -139,7 +141,6 @@ func Default() *Config {
 		MaxFormMemorySize:  1_000_000,
 		HTMLExtraHead:      "",
 		HTMLExtraBody:      "",
-		LogLevelWerkzeug:   "INFO",
 		IssueTags:       "bug,feature,improvement,question,documentation",
 		IssueCategories: "", // Empty by default - no categories required
 	}
@@ -191,7 +192,9 @@ func (c *Config) LoadFromEnv() {
 	// Core settings
 	c.Debug = getEnvBool("DEBUG", c.Debug)
 	c.Testing = getEnvBool("TESTING", c.Testing)
+	c.DevMode = getEnvBool("DEV_MODE", c.DevMode)
 	c.LogLevel = getEnv("LOG_LEVEL", c.LogLevel)
+	c.LogFormat = getEnv("LOG_FORMAT", c.LogFormat)
 	c.Repository = getEnv("REPOSITORY", c.Repository)
 	c.SecretKey = getEnv("SECRET_KEY", c.SecretKey)
 
@@ -219,8 +222,12 @@ func (c *Config) LoadFromEnv() {
 	c.NotifyAdminsOnRegister = getEnvBool("NOTIFY_ADMINS_ON_REGISTER", c.NotifyAdminsOnRegister)
 	c.NotifyUserOnApproval = getEnvBool("NOTIFY_USER_ON_APPROVAL", c.NotifyUserOnApproval)
 
-	// Database
-	c.DatabaseURI = getEnv("SQLALCHEMY_DATABASE_URI", c.DatabaseURI)
+	// Database - check new name first, fall back to legacy name
+	if v := os.Getenv("DATABASE_URI"); v != "" {
+		c.DatabaseURI = v
+	} else {
+		c.DatabaseURI = getEnv("SQLALCHEMY_DATABASE_URI", c.DatabaseURI)
+	}
 
 	// Mail settings
 	c.MailDefaultSender = getEnv("MAIL_DEFAULT_SENDER", c.MailDefaultSender)
@@ -256,8 +263,6 @@ func (c *Config) LoadFromEnv() {
 	c.MaxFormMemorySize = getEnvInt64("MAX_FORM_MEMORY_SIZE", c.MaxFormMemorySize)
 	c.HTMLExtraHead = getEnv("HTML_EXTRA_HEAD", c.HTMLExtraHead)
 	c.HTMLExtraBody = getEnv("HTML_EXTRA_BODY", c.HTMLExtraBody)
-	c.LogLevelWerkzeug = getEnv("LOG_LEVEL_WERKZEUG", c.LogLevelWerkzeug)
-
 	// Issue tracker settings
 	c.IssueTags = getEnv("ISSUE_TAGS", c.IssueTags)
 	c.IssueCategories = getEnv("ISSUE_CATEGORIES", c.IssueCategories)
@@ -265,7 +270,7 @@ func (c *Config) LoadFromEnv() {
 
 // Validate checks that required configuration is set.
 func (c *Config) Validate() error {
-	if len(c.SecretKey) < 16 || c.SecretKey == "CHANGE ME" {
+	if !c.DevMode && (len(c.SecretKey) < 16 || c.SecretKey == "CHANGE ME") {
 		return fmt.Errorf("please configure a random SECRET_KEY with a length of at least 16 characters")
 	}
 	if c.Repository == "" {

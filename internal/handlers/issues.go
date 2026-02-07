@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"html/template"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -66,7 +67,7 @@ func (s *Server) handleIssueList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		http.Error(w, "Failed to list issues", http.StatusInternalServerError)
+		s.renderError(w, r, http.StatusInternalServerError, "Failed to list issues")
 		return
 	}
 
@@ -93,8 +94,14 @@ func (s *Server) handleIssueList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get counts
-	openCount, _ := s.DB.Queries.CountIssuesByStatus(ctx, "open")
-	closedCount, _ := s.DB.Queries.CountIssuesByStatus(ctx, "closed")
+	openCount, err := s.DB.Queries.CountIssuesByStatus(ctx, "open")
+	if err != nil {
+		slog.Warn("failed to count open issues", "error", err)
+	}
+	closedCount, err := s.DB.Queries.CountIssuesByStatus(ctx, "closed")
+	if err != nil {
+		slog.Warn("failed to count closed issues", "error", err)
+	}
 
 	// Group issues by category
 	categoryMap := make(map[string][]map[string]interface{})
@@ -139,20 +146,16 @@ func (s *Server) handleIssueList(w http.ResponseWriter, r *http.Request) {
 		flatIssues = append(flatIssues, group.Issues...)
 	}
 
-	data := map[string]interface{}{
-		"templateType":        "generic",
-		"title":               "Issues",
-		"issues":              flatIssues,
-		"groupedIssues":       groupedIssues,
-		"statusFilter":        statusFilter,
-		"tagFilter":           tagFilter,
-		"categoryFilter":      categoryFilter,
-		"openCount":           openCount,
-		"closedCount":         closedCount,
-		"availableTags":       s.getAvailableTags(ctx),
-		"availableCategories": s.getAvailableCategories(ctx),
-	}
-
+	data := NewGenericData("Issues")
+	data["issues"] = flatIssues
+	data["groupedIssues"] = groupedIssues
+	data["statusFilter"] = statusFilter
+	data["tagFilter"] = tagFilter
+	data["categoryFilter"] = categoryFilter
+	data["openCount"] = openCount
+	data["closedCount"] = closedCount
+	data["availableTags"] = s.getAvailableTags(ctx)
+	data["availableCategories"] = s.getAvailableCategories(ctx)
 	s.renderTemplate(w, r, "issues_list.html", data)
 }
 
@@ -162,17 +165,17 @@ func (s *Server) handleIssueView(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	id, err := parseInt64(idStr)
 	if err != nil {
-		http.Error(w, "Invalid issue ID", http.StatusBadRequest)
+		s.renderError(w, r, http.StatusBadRequest, "Invalid issue ID")
 		return
 	}
 
 	issue, err := s.DB.Queries.GetIssue(ctx, id)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			http.Error(w, "Issue not found", http.StatusNotFound)
+			s.renderError(w, r, http.StatusNotFound, "Issue not found")
 			return
 		}
-		http.Error(w, "Failed to get issue", http.StatusInternalServerError)
+		s.renderError(w, r, http.StatusInternalServerError, "Failed to get issue")
 		return
 	}
 
@@ -188,32 +191,24 @@ func (s *Server) handleIssueView(w http.ResponseWriter, r *http.Request) {
 	canEdit := user.IsAuthenticated()
 	canDelete := user.Admin()
 
-	data := map[string]interface{}{
-		"templateType":        "generic",
-		"title":               fmt.Sprintf("#%d - %s", issue.ID, issue.Title),
-		"issue":               issue,
-		"htmlcontent":         template.HTML(htmlContent),
-		"tags":                tags,
-		"availableTags":       s.getAvailableTags(ctx),
-		"availableCategories": s.getAvailableCategories(ctx),
-		"canEdit":             canEdit,
-		"canDelete":           canDelete,
-	}
-
+	data := NewGenericData(fmt.Sprintf("#%d - %s", issue.ID, issue.Title))
+	data["issue"] = issue
+	data["htmlcontent"] = template.HTML(htmlContent)
+	data["tags"] = tags
+	data["availableTags"] = s.getAvailableTags(ctx)
+	data["availableCategories"] = s.getAvailableCategories(ctx)
+	data["canEdit"] = canEdit
+	data["canDelete"] = canDelete
 	s.renderTemplate(w, r, "issues_view.html", data)
 }
 
 // handleIssueNew handles showing the new issue form.
 func (s *Server) handleIssueNew(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	data := map[string]interface{}{
-		"templateType":        "generic",
-		"title":               "New Issue",
-		"availableTags":       s.getAvailableTags(ctx),
-		"availableCategories": s.getAvailableCategories(ctx),
-		"isEdit":              false,
-	}
-
+	data := NewGenericData("New Issue")
+	data["availableTags"] = s.getAvailableTags(ctx)
+	data["availableCategories"] = s.getAvailableCategories(ctx)
+	data["isEdit"] = false
 	s.renderTemplate(w, r, "issues_form.html", data)
 }
 
@@ -221,7 +216,7 @@ func (s *Server) handleIssueNew(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleIssueCreate(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		s.renderError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -254,14 +249,14 @@ func (s *Server) handleIssueCreate(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	params := db.CreateIssueParams{
 		Title:          title,
-		Description:    toSqlNullString(description),
+		Description:    db.NullString(description),
 		Status:         "open",
-		Category:       toSqlNullString(category),
-		Tags:           toSqlNullString(strings.Join(tags, ",")),
-		CreatedByName:  toSqlNullString(createdByName),
-		CreatedByEmail: toSqlNullString(createdByEmail),
-		CreatedAt:      toSqlNullTime(now),
-		UpdatedAt:      toSqlNullTime(now),
+		Category:       db.NullString(category),
+		Tags:           db.NullString(strings.Join(tags, ",")),
+		CreatedByName:  db.NullString(createdByName),
+		CreatedByEmail: db.NullString(createdByEmail),
+		CreatedAt:      db.NullTime(now),
+		UpdatedAt:      db.NullTime(now),
 	}
 
 	issue, err := s.DB.Queries.CreateIssue(ctx, params)
@@ -281,32 +276,28 @@ func (s *Server) handleIssueEdit(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	id, err := parseInt64(idStr)
 	if err != nil {
-		http.Error(w, "Invalid issue ID", http.StatusBadRequest)
+		s.renderError(w, r, http.StatusBadRequest, "Invalid issue ID")
 		return
 	}
 
 	issue, err := s.DB.Queries.GetIssue(ctx, id)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			http.Error(w, "Issue not found", http.StatusNotFound)
+			s.renderError(w, r, http.StatusNotFound, "Issue not found")
 			return
 		}
-		http.Error(w, "Failed to get issue", http.StatusInternalServerError)
+		s.renderError(w, r, http.StatusInternalServerError, "Failed to get issue")
 		return
 	}
 
 	tags := parseTags(issue.Tags.String)
 
-	data := map[string]interface{}{
-		"templateType":        "generic",
-		"title":               fmt.Sprintf("Edit Issue #%d", issue.ID),
-		"issue":               issue,
-		"tags":                tags,
-		"availableTags":       s.getAvailableTags(ctx),
-		"availableCategories": s.getAvailableCategories(ctx),
-		"isEdit":              true,
-	}
-
+	data := NewGenericData(fmt.Sprintf("Edit Issue #%d", issue.ID))
+	data["issue"] = issue
+	data["tags"] = tags
+	data["availableTags"] = s.getAvailableTags(ctx)
+	data["availableCategories"] = s.getAvailableCategories(ctx)
+	data["isEdit"] = true
 	s.renderTemplate(w, r, "issues_form.html", data)
 }
 
@@ -316,12 +307,12 @@ func (s *Server) handleIssueUpdate(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	id, err := parseInt64(idStr)
 	if err != nil {
-		http.Error(w, "Invalid issue ID", http.StatusBadRequest)
+		s.renderError(w, r, http.StatusBadRequest, "Invalid issue ID")
 		return
 	}
 
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		s.renderError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -329,10 +320,10 @@ func (s *Server) handleIssueUpdate(w http.ResponseWriter, r *http.Request) {
 	issue, err := s.DB.Queries.GetIssue(ctx, id)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			http.Error(w, "Issue not found", http.StatusNotFound)
+			s.renderError(w, r, http.StatusNotFound, "Issue not found")
 			return
 		}
-		http.Error(w, "Failed to get issue", http.StatusInternalServerError)
+		s.renderError(w, r, http.StatusInternalServerError, "Failed to get issue")
 		return
 	}
 
@@ -349,11 +340,11 @@ func (s *Server) handleIssueUpdate(w http.ResponseWriter, r *http.Request) {
 
 	params := db.UpdateIssueParams{
 		Title:       title,
-		Description: toSqlNullString(description),
+		Description: db.NullString(description),
 		Status:      issue.Status,
-		Category:    toSqlNullString(category),
-		Tags:        toSqlNullString(strings.Join(tags, ",")),
-		UpdatedAt:   toSqlNullTime(time.Now()),
+		Category:    db.NullString(category),
+		Tags:        db.NullString(strings.Join(tags, ",")),
+		UpdatedAt:   db.NullTime(time.Now()),
 		ID:          id,
 	}
 
@@ -383,17 +374,17 @@ func (s *Server) updateIssueStatus(w http.ResponseWriter, r *http.Request, statu
 	idStr := chi.URLParam(r, "id")
 	id, err := parseInt64(idStr)
 	if err != nil {
-		http.Error(w, "Invalid issue ID", http.StatusBadRequest)
+		s.renderError(w, r, http.StatusBadRequest, "Invalid issue ID")
 		return
 	}
 
 	issue, err := s.DB.Queries.GetIssue(ctx, id)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			http.Error(w, "Issue not found", http.StatusNotFound)
+			s.renderError(w, r, http.StatusNotFound, "Issue not found")
 			return
 		}
-		http.Error(w, "Failed to get issue", http.StatusInternalServerError)
+		s.renderError(w, r, http.StatusInternalServerError, "Failed to get issue")
 		return
 	}
 
@@ -403,7 +394,7 @@ func (s *Server) updateIssueStatus(w http.ResponseWriter, r *http.Request, statu
 		Status:      status,
 		Category:    issue.Category,
 		Tags:        issue.Tags,
-		UpdatedAt:   toSqlNullTime(time.Now()),
+		UpdatedAt:   db.NullTime(time.Now()),
 		ID:          id,
 	}
 
@@ -431,7 +422,7 @@ func (s *Server) handleIssueDelete(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	id, err := parseInt64(idStr)
 	if err != nil {
-		http.Error(w, "Invalid issue ID", http.StatusBadRequest)
+		s.renderError(w, r, http.StatusBadRequest, "Invalid issue ID")
 		return
 	}
 

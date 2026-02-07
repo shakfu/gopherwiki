@@ -57,6 +57,14 @@
 <div class="page">
 {{.htmlcontent}}
 </div>
+{{if .backlinks}}
+<div class="backlinks mt-20">
+    <h4>What links here</h4>
+    <ul>
+    {{range .backlinks}}<li><a href="/{{.}}">{{.}}</a></li>{{end}}
+    </ul>
+</div>
+{{end}}
 {{end}}
 
 {{define "page_extra_nav"}}

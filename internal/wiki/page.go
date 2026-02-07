@@ -2,6 +2,7 @@
 package wiki
 
 import (
+	"log/slog"
 	"strings"
 
 	"github.com/sa/gopherwiki/internal/config"
@@ -155,7 +156,10 @@ func (p *Page) Rename(newPagename, message string, author storage.Author) error 
 	}
 
 	// Check for attachments
-	files, dirs, _ := p.store.List(p.AttachmentDirectoryname, nil, nil)
+	files, dirs, err := p.store.List(p.AttachmentDirectoryname, nil, nil)
+	if err != nil {
+		slog.Warn("failed to list attachments", "directory", p.AttachmentDirectoryname, "error", err)
+	}
 	hasAttachments := len(files)+len(dirs) > 0
 
 	if hasAttachments {
@@ -222,13 +226,14 @@ type Attachment struct {
 	store storage.Storage
 }
 
-// NewAttachment creates a new Attachment.
+// NewAttachment creates a new Attachment. Metadata is not loaded eagerly;
+// call LoadMetadata() if you need commit information.
 func NewAttachment(store storage.Storage, pagepath, filename, revision string) *Attachment {
 	pageFilename := util.GetFilename(pagepath)
 	directory := util.GetAttachmentDirectoryname(pageFilename)
 	filepath := directory + "/" + filename
 
-	a := &Attachment{
+	return &Attachment{
 		Pagepath:  pagepath,
 		Filename:  filename,
 		Filepath:  filepath,
@@ -238,14 +243,16 @@ func NewAttachment(store storage.Storage, pagepath, filename, revision string) *
 		Mimetype:  util.GuessMimetype(filename),
 		store:     store,
 	}
+}
 
-	// Load metadata
-	meta, err := store.Metadata(filepath, revision)
-	if err == nil {
-		a.Metadata = meta
+// LoadMetadata explicitly loads commit metadata for this attachment.
+func (a *Attachment) LoadMetadata() error {
+	meta, err := a.store.Metadata(a.Filepath, a.Revision)
+	if err != nil {
+		return err
 	}
-
-	return a
+	a.Metadata = meta
+	return nil
 }
 
 // Exists checks if the attachment exists.

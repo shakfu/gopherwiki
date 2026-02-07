@@ -1,11 +1,14 @@
 package storage
 
 import (
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-git/go-git/v5"
@@ -13,10 +16,13 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
+var errIterDone = errors.New("iteration done")
+
 // GitStorage implements Storage using a Git repository.
 type GitStorage struct {
 	path string
 	repo *git.Repository
+	mu   sync.Mutex
 }
 
 // NewGitStorage creates a new GitStorage for the given path.
@@ -50,26 +56,57 @@ func (g *GitStorage) Path() string {
 	return g.path
 }
 
+// validatePath checks that the given path does not escape the repository root.
+func (g *GitStorage) validatePath(filename string) error {
+	if filename == "" {
+		return nil
+	}
+	cleaned := filepath.Clean(filename)
+	if filepath.IsAbs(cleaned) {
+		return ErrPathTraversal
+	}
+	if strings.HasPrefix(cleaned, "..") {
+		return ErrPathTraversal
+	}
+	joined := filepath.Join(g.path, cleaned)
+	if !strings.HasPrefix(joined, g.path+string(filepath.Separator)) && joined != g.path {
+		return ErrPathTraversal
+	}
+	return nil
+}
+
 // Exists checks if a file exists.
 func (g *GitStorage) Exists(filename string) bool {
+	if g.validatePath(filename) != nil {
+		return false
+	}
 	_, err := os.Stat(filepath.Join(g.path, filename))
 	return err == nil
 }
 
 // IsDir checks if a path is a directory.
 func (g *GitStorage) IsDir(dirname string) bool {
+	if g.validatePath(dirname) != nil {
+		return false
+	}
 	info, err := os.Stat(filepath.Join(g.path, dirname))
 	return err == nil && info.IsDir()
 }
 
 // IsEmptyDir checks if a directory is empty.
 func (g *GitStorage) IsEmptyDir(dirname string) bool {
+	if g.validatePath(dirname) != nil {
+		return false
+	}
 	entries, err := os.ReadDir(filepath.Join(g.path, dirname))
 	return err == nil && len(entries) == 0
 }
 
 // Mtime returns the modification time of a file.
 func (g *GitStorage) Mtime(filename string) (time.Time, error) {
+	if err := g.validatePath(filename); err != nil {
+		return time.Time{}, err
+	}
 	info, err := os.Stat(filepath.Join(g.path, filename))
 	if err != nil {
 		return time.Time{}, err
@@ -79,6 +116,9 @@ func (g *GitStorage) Mtime(filename string) (time.Time, error) {
 
 // Size returns the size of a file in bytes.
 func (g *GitStorage) Size(filename string) (int64, error) {
+	if err := g.validatePath(filename); err != nil {
+		return 0, err
+	}
 	info, err := os.Stat(filepath.Join(g.path, filename))
 	if err != nil {
 		return 0, err
@@ -90,7 +130,9 @@ func (g *GitStorage) Size(filename string) (int64, error) {
 func (g *GitStorage) checkReload() {
 	reloadPath := filepath.Join(g.path, ".git", "RELOAD_GIT")
 	if _, err := os.Stat(reloadPath); err == nil {
-		os.Remove(reloadPath)
+		if err := os.Remove(reloadPath); err != nil {
+			slog.Warn("failed to remove reload marker", "error", err)
+		}
 		repo, err := git.PlainOpen(g.path)
 		if err == nil {
 			g.repo = repo
@@ -109,6 +151,11 @@ func (g *GitStorage) Load(filename string, revision string) (string, error) {
 
 // LoadBytes reads a file's content as bytes.
 func (g *GitStorage) LoadBytes(filename string, revision string) ([]byte, error) {
+	if err := g.validatePath(filename); err != nil {
+		return nil, err
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	g.checkReload()
 
 	if revision != "" {
@@ -153,8 +200,13 @@ func (g *GitStorage) Store(filename, content, message string, author Author) (bo
 
 // StoreBytes writes binary content to a file and commits it.
 func (g *GitStorage) StoreBytes(filename string, content []byte, message string, author Author) (bool, error) {
+	if err := g.validatePath(filename); err != nil {
+		return false, err
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	if message == "" {
-		message = ""
+		message = "Update " + filename
 	}
 
 	fullPath := filepath.Join(g.path, filename)
@@ -210,6 +262,11 @@ func (g *GitStorage) StoreBytes(filename string, content []byte, message string,
 
 // Delete removes a file or directory.
 func (g *GitStorage) Delete(filename string, message string, author Author) error {
+	if err := g.validatePath(filename); err != nil {
+		return err
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	worktree, err := g.repo.Worktree()
 	if err != nil {
 		return err
@@ -261,6 +318,14 @@ func (g *GitStorage) Delete(filename string, message string, author Author) erro
 
 // Rename renames a file.
 func (g *GitStorage) Rename(oldFilename, newFilename, message string, author Author) error {
+	if err := g.validatePath(oldFilename); err != nil {
+		return err
+	}
+	if err := g.validatePath(newFilename); err != nil {
+		return err
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	if g.Exists(newFilename) {
 		return fmt.Errorf("the filename %q already exists", newFilename)
 	}
@@ -309,6 +374,11 @@ func (g *GitStorage) Rename(oldFilename, newFilename, message string, author Aut
 
 // Metadata returns commit metadata for a file.
 func (g *GitStorage) Metadata(filename string, revision string) (*CommitMetadata, error) {
+	if err := g.validatePath(filename); err != nil {
+		return nil, err
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	g.checkReload()
 
 	var commit *object.Commit
@@ -342,41 +412,54 @@ func (g *GitStorage) Metadata(filename string, revision string) (*CommitMetadata
 		}
 	}
 
-	return g.commitToMetadata(commit)
+	return g.commitToMetadata(commit, false)
 }
 
-func (g *GitStorage) commitToMetadata(commit *object.Commit) (*CommitMetadata, error) {
-	files := []string{}
+func (g *GitStorage) commitToMetadata(commit *object.Commit, includeFiles bool) (*CommitMetadata, error) {
+	var files []string
 
-	// Get parent to compute diff
-	parentIter := commit.Parents()
-	parent, err := parentIter.Next()
-	parentIter.Close()
+	if includeFiles {
+		// Get parent to compute diff
+		parentIter := commit.Parents()
+		parent, err := parentIter.Next()
+		parentIter.Close()
 
-	if err == nil {
-		// Get changed files between parent and this commit
-		parentTree, _ := parent.Tree()
-		commitTree, _ := commit.Tree()
-		if parentTree != nil && commitTree != nil {
-			changes, err := parentTree.Diff(commitTree)
-			if err == nil {
-				for _, change := range changes {
-					if change.From.Name != "" {
-						files = append(files, change.From.Name)
-					} else if change.To.Name != "" {
-						files = append(files, change.To.Name)
+		if err == nil {
+			// Get changed files between parent and this commit
+			parentTree, err := parent.Tree()
+			if err != nil {
+				slog.Warn("failed to load parent tree", "commit", commit.Hash.String()[:6], "error", err)
+				parentTree = nil
+			}
+			commitTree, err := commit.Tree()
+			if err != nil {
+				slog.Warn("failed to load commit tree", "commit", commit.Hash.String()[:6], "error", err)
+				commitTree = nil
+			}
+			if parentTree != nil && commitTree != nil {
+				changes, err := parentTree.Diff(commitTree)
+				if err == nil {
+					for _, change := range changes {
+						if change.From.Name != "" {
+							files = append(files, change.From.Name)
+						} else if change.To.Name != "" {
+							files = append(files, change.To.Name)
+						}
 					}
 				}
 			}
-		}
-	} else {
-		// Initial commit - list all files
-		tree, err := commit.Tree()
-		if err == nil {
-			tree.Files().ForEach(func(f *object.File) error {
-				files = append(files, f.Name)
-				return nil
-			})
+		} else {
+			// Initial commit - list all files
+			tree, err := commit.Tree()
+			if err != nil {
+				slog.Warn("failed to load tree for initial commit", "commit", commit.Hash.String()[:6], "error", err)
+			}
+			if err == nil {
+				tree.Files().ForEach(func(f *object.File) error {
+					files = append(files, f.Name)
+					return nil
+				})
+			}
 		}
 	}
 
@@ -393,6 +476,18 @@ func (g *GitStorage) commitToMetadata(commit *object.Commit) (*CommitMetadata, e
 
 // Log returns the commit history.
 func (g *GitStorage) Log(filename string, maxCount int) ([]CommitMetadata, error) {
+	if filename != "" {
+		if err := g.validatePath(filename); err != nil {
+			return nil, err
+		}
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.logLocked(filename, maxCount)
+}
+
+// logLocked performs the log operation. Caller must hold g.mu.
+func (g *GitStorage) logLocked(filename string, maxCount int) ([]CommitMetadata, error) {
 	g.checkReload()
 
 	opts := &git.LogOptions{
@@ -416,10 +511,10 @@ func (g *GitStorage) Log(filename string, maxCount int) ([]CommitMetadata, error
 
 	err = iter.ForEach(func(commit *object.Commit) error {
 		if maxCount > 0 && count >= maxCount {
-			return fmt.Errorf("done")
+			return errIterDone
 		}
 
-		meta, err := g.commitToMetadata(commit)
+		meta, err := g.commitToMetadata(commit, false)
 		if err != nil {
 			return err
 		}
@@ -428,7 +523,7 @@ func (g *GitStorage) Log(filename string, maxCount int) ([]CommitMetadata, error
 		return nil
 	})
 
-	if err != nil && err.Error() != "done" && len(result) == 0 {
+	if err != nil && !errors.Is(err, errIterDone) && len(result) == 0 {
 		return nil, ErrNotFound
 	}
 
@@ -437,6 +532,11 @@ func (g *GitStorage) Log(filename string, maxCount int) ([]CommitMetadata, error
 
 // Blame returns blame information for a file.
 func (g *GitStorage) Blame(filename string, revision string) ([]BlameLine, error) {
+	if err := g.validatePath(filename); err != nil {
+		return nil, err
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	g.checkReload()
 
 	var commitHash plumbing.Hash
@@ -481,6 +581,8 @@ func (g *GitStorage) Blame(filename string, revision string) ([]BlameLine, error
 
 // Diff returns the diff between two revisions.
 func (g *GitStorage) Diff(revA, revB string) (string, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	hashA, err := g.repo.ResolveRevision(plumbing.Revision(revA))
 	if err != nil {
 		return "", ErrNotFound
@@ -526,6 +628,8 @@ func (g *GitStorage) Diff(revA, revB string) (string, error) {
 
 // ShowCommit returns metadata and diff for a specific commit.
 func (g *GitStorage) ShowCommit(revision string) (*CommitMetadata, string, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	hash, err := g.repo.ResolveRevision(plumbing.Revision(revision))
 	if err != nil {
 		return nil, "", fmt.Errorf("no commit found for ref %s", revision)
@@ -536,7 +640,7 @@ func (g *GitStorage) ShowCommit(revision string) (*CommitMetadata, string, error
 		return nil, "", err
 	}
 
-	meta, err := g.commitToMetadata(commit)
+	meta, err := g.commitToMetadata(commit, true)
 	if err != nil {
 		return nil, "", err
 	}
@@ -548,29 +652,45 @@ func (g *GitStorage) ShowCommit(revision string) (*CommitMetadata, string, error
 	parentIter.Close()
 
 	if err == nil {
-		parentTree, _ := parent.Tree()
-		commitTree, _ := commit.Tree()
-		if parentTree != nil && commitTree != nil {
-			changes, err := parentTree.Diff(commitTree)
-			if err == nil {
-				patch, err := changes.Patch()
-				if err == nil {
-					diff = patch.String()
-				}
-			}
+		parentTree, err := parent.Tree()
+		if err != nil {
+			slog.Warn("failed to load parent tree", "commit", commit.Hash.String()[:6], "error", err)
+			return meta, "", nil
 		}
+		commitTree, err := commit.Tree()
+		if err != nil {
+			slog.Warn("failed to load commit tree", "commit", commit.Hash.String()[:6], "error", err)
+			return meta, "", nil
+		}
+		changes, err := parentTree.Diff(commitTree)
+		if err != nil {
+			slog.Warn("failed to diff trees", "commit", commit.Hash.String()[:6], "error", err)
+			return meta, "", nil
+		}
+		patch, err := changes.Patch()
+		if err != nil {
+			slog.Warn("failed to generate patch", "commit", commit.Hash.String()[:6], "error", err)
+			return meta, "", nil
+		}
+		diff = patch.String()
 	} else {
 		// Initial commit - show all files as added
-		tree, _ := commit.Tree()
-		if tree != nil {
-			changes, _ := object.DiffTree(nil, tree)
-			if changes != nil {
-				patch, _ := changes.Patch()
-				if patch != nil {
-					diff = patch.String()
-				}
-			}
+		tree, err := commit.Tree()
+		if err != nil {
+			slog.Warn("failed to load tree for initial commit", "commit", commit.Hash.String()[:6], "error", err)
+			return meta, "", nil
 		}
+		changes, err := object.DiffTree(nil, tree)
+		if err != nil {
+			slog.Warn("failed to diff tree for initial commit", "commit", commit.Hash.String()[:6], "error", err)
+			return meta, "", nil
+		}
+		patch, err := changes.Patch()
+		if err != nil {
+			slog.Warn("failed to generate patch for initial commit", "commit", commit.Hash.String()[:6], "error", err)
+			return meta, "", nil
+		}
+		diff = patch.String()
 	}
 
 	return meta, diff, nil
@@ -578,8 +698,8 @@ func (g *GitStorage) ShowCommit(revision string) (*CommitMetadata, string, error
 
 // Revert reverts a commit.
 func (g *GitStorage) Revert(revision, message string, author Author) error {
-	// Note: go-git doesn't have a direct revert command, so we need to use git CLI
-	// For now, we'll implement a basic version that loads the parent state
+	g.mu.Lock()
+	defer g.mu.Unlock()
 
 	hash, err := g.repo.ResolveRevision(plumbing.Revision(revision))
 	if err != nil {
@@ -626,16 +746,27 @@ func (g *GitStorage) Revert(revision, message string, author Author) error {
 			// File was modified or deleted - restore from parent
 			file, err := parentTree.File(change.From.Name)
 			if err == nil {
-				content, _ := file.Contents()
+				content, err := file.Contents()
+				if err != nil {
+					return fmt.Errorf("failed to read file %s from parent: %w", change.From.Name, err)
+				}
 				fullPath := filepath.Join(g.path, change.From.Name)
-				os.MkdirAll(filepath.Dir(fullPath), 0o775)
-				os.WriteFile(fullPath, []byte(content), 0o644)
-				worktree.Add(change.From.Name)
+				if err := os.MkdirAll(filepath.Dir(fullPath), 0o775); err != nil {
+					return fmt.Errorf("failed to create directory for %s: %w", change.From.Name, err)
+				}
+				if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil {
+					return fmt.Errorf("failed to write file %s: %w", change.From.Name, err)
+				}
+				if _, err := worktree.Add(change.From.Name); err != nil {
+				return fmt.Errorf("failed to stage restored file %s: %w", change.From.Name, err)
+			}
 			}
 		}
 		if change.To.Name != "" && change.From.Name == "" {
 			// File was added - remove it
-			worktree.Remove(change.To.Name)
+			if _, err := worktree.Remove(change.To.Name); err != nil {
+			return fmt.Errorf("failed to stage removal of %s: %w", change.To.Name, err)
+		}
 		}
 	}
 
@@ -656,6 +787,11 @@ func (g *GitStorage) Revert(revision, message string, author Author) error {
 
 // List returns files and directories in a path.
 func (g *GitStorage) List(p string, depth *int, exclude []string) (files, directories []string, err error) {
+	if p != "" {
+		if err := g.validatePath(p); err != nil {
+			return nil, nil, err
+		}
+	}
 	excludeSet := make(map[string]bool)
 	excludeSet[".git"] = true
 	for _, e := range exclude {
@@ -678,7 +814,11 @@ func (g *GitStorage) List(p string, depth *int, exclude []string) (files, direct
 		}
 
 		// Get relative path
-		relPath, _ := filepath.Rel(fullPath, path)
+		relPath, err := filepath.Rel(fullPath, path)
+		if err != nil {
+			slog.Warn("failed to compute relative path", "path", path, "error", err)
+			return nil
+		}
 		if relPath == "." {
 			return nil
 		}
@@ -719,6 +859,13 @@ func (g *GitStorage) List(p string, depth *int, exclude []string) (files, direct
 
 // Commit commits staged files.
 func (g *GitStorage) Commit(filenames []string, message string, author Author) error {
+	for _, filename := range filenames {
+		if err := g.validatePath(filename); err != nil {
+			return err
+		}
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	worktree, err := g.repo.Worktree()
 	if err != nil {
 		return err
@@ -742,15 +889,20 @@ func (g *GitStorage) Commit(filenames []string, message string, author Author) e
 
 // GetParentRevision returns the parent revision for a file.
 func (g *GitStorage) GetParentRevision(filename, revision string) (string, error) {
-	log, err := g.Log(filename, 0)
+	if err := g.validatePath(filename); err != nil {
+		return "", err
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	history, err := g.logLocked(filename, 0)
 	if err != nil {
 		return "", err
 	}
 
-	for i, entry := range log {
+	for i, entry := range history {
 		if entry.Revision == revision || strings.HasPrefix(entry.RevisionFull, revision) {
-			if i+1 < len(log) {
-				return log[i+1].Revision, nil
+			if i+1 < len(history) {
+				return history[i+1].Revision, nil
 			}
 			return "", ErrNotFound
 		}
@@ -760,8 +912,11 @@ func (g *GitStorage) GetParentRevision(filename, revision string) (string, error
 
 // GetFilenameAtRevision returns the filename used at a specific revision.
 func (g *GitStorage) GetFilenameAtRevision(currentFilename, revision string) (string, error) {
-	// For now, return the current filename
-	// Implementing full rename tracking would require more complex logic
+	if err := g.validatePath(currentFilename); err != nil {
+		return "", err
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	hash, err := g.repo.ResolveRevision(plumbing.Revision(revision))
 	if err != nil {
 		return currentFilename, nil
@@ -786,14 +941,6 @@ func (g *GitStorage) GetFilenameAtRevision(currentFilename, revision string) (st
 	// File doesn't exist - try to find it with rename tracking
 	// This is a simplified implementation
 	return currentFilename, nil
-}
-
-// splitPath splits a path into its components.
-func splitPath(p string) []string {
-	if p == "" {
-		return nil
-	}
-	return strings.Split(filepath.ToSlash(p), "/")
 }
 
 var _ Storage = (*GitStorage)(nil)

@@ -2,7 +2,7 @@
 <div class="content">
     <h1>Page not found</h1>
     <p>The page <strong>{{.pagename}}</strong> does not exist.</p>
-    {{if hasPermission "WRITE"}}
+    {{if hasPermission "write" .permissions}}
     <p><a href="/{{.pagepath}}/edit" class="btn btn-primary">Create this page</a></p>
     {{end}}
 </div>

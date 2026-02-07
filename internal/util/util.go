@@ -11,6 +11,12 @@ import (
 	"unicode"
 )
 
+var (
+	slugNoSlashRegex     = regexp.MustCompile(`[^a-z0-9\-]`)
+	slugWithSlashRegex   = regexp.MustCompile(`[^a-z0-9\-\/]`)
+	slugMultiHyphenRegex = regexp.MustCompile(`-+`)
+)
+
 // Empty checks if a string is empty or contains only whitespace.
 func Empty(s string) bool {
 	return strings.TrimSpace(s) == ""
@@ -24,21 +30,15 @@ func Slugify(s string, keepSlashes bool) string {
 	// Replace spaces with hyphens
 	s = strings.ReplaceAll(s, " ", "-")
 
-	// Define allowed characters
-	var allowedChars string
+	// Remove non-allowed characters
 	if keepSlashes {
-		allowedChars = `[^a-z0-9\-\/]`
+		s = slugWithSlashRegex.ReplaceAllString(s, "")
 	} else {
-		allowedChars = `[^a-z0-9\-]`
+		s = slugNoSlashRegex.ReplaceAllString(s, "")
 	}
 
-	// Remove non-allowed characters
-	reg := regexp.MustCompile(allowedChars)
-	s = reg.ReplaceAllString(s, "")
-
 	// Remove consecutive hyphens
-	reg = regexp.MustCompile(`-+`)
-	s = reg.ReplaceAllString(s, "-")
+	s = slugMultiHyphenRegex.ReplaceAllString(s, "-")
 
 	// Trim leading/trailing hyphens
 	s = strings.Trim(s, "-")

@@ -33,6 +33,7 @@
       <h5 class="modal-title">Save {{.pagename}}</h5>
       <form id="saveform" action="/{{.pagepath}}/save" method="post" autocomplete="off">
       <input id="save_content" type="hidden" name="content" value="">
+      <input id="save_revision" type="hidden" name="revision" value="">
         <div class="form-group">
             <label for="commit-message" class="required">Commit Message</label>
             <input name="commit" id="commit-message" type="text" class="form-control" placeholder="Your commit message here" required="required">
@@ -45,6 +46,11 @@
 {{end}}
 
 {{define "editor_content"}}
+{{if .conflict_message}}
+<div class="alert alert-danger" role="alert">
+    {{.conflict_message}}
+</div>
+{{end}}
 <h4>Editing: {{.pagename}}</h4>
 <form id="dummy">
 <textarea id="content_editor" name="content_editor">{{.content_editor}}</textarea>
@@ -197,6 +203,7 @@
     document.getElementById('saveform').onsubmit = function() {
         const content_editor = cm_editor.getValue();
         document.getElementById('save_content').value = content_editor;
+        document.getElementById('save_revision').value = currentRevision;
         // Delete draft on successful save
         deleteDraft();
         if (autosaveTimer) clearInterval(autosaveTimer);
