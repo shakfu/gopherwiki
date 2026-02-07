@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Issue Comments**: Discussion threads on issues with full CRUD support. Comments are rendered as markdown. Admin-only delete. Cascade delete when parent issue is removed. Available via both HTML form and JSON API (`/-/api/v1/issues/{id}/comments`).
+- **`-host` CLI flag**: Bind the server to a specific host/IP (default: all interfaces). Useful for restricting access to localhost in development.
+- **`DEV_MODE` in dev target**: `make dev` now sets `DEV_MODE=1` and binds to `127.0.0.1` to prevent accidental network exposure during development.
+- **SQLite foreign key enforcement**: Enabled `_foreign_keys=1` on all database connections so `ON DELETE CASCADE` constraints are honored.
+
 ## [v0.1.0] - 2026-02-05
 
 ### Initial Release

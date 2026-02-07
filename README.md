@@ -16,8 +16,10 @@ This project is a Go translation of [An Otter Wiki](https://github.com/redimp/ot
 - Page attachments with image thumbnails
 - Extended Markdown: tables, footnotes, alerts, mermaid diagrams, syntax highlighting
 - Git HTTP server: clone, pull, and push wiki content
+- Issue tracker with comments and discussion threads
 - Draft autosave
 - RSS/Atom feeds
+- JSON API (`/-/api/v1/`) for pages, search, changelog, and issues
 - Single binary deployment
 
 ## Installation
@@ -90,6 +92,7 @@ Configuration is done via environment variables:
 | `ATTACHMENT_ACCESS` | REGISTERED | Who can upload: ANONYMOUS, REGISTERED, or APPROVED |
 | `AUTO_APPROVAL` | true | Auto-approve new registrations |
 | `DISABLE_REGISTRATION` | false | Disable new user registration |
+| `DEV_MODE` | false | Relaxes secret key validation for local development |
 
 ### Generating a Secret Key
 
@@ -101,6 +104,18 @@ openssl rand -base64 32
 go run -e 'import "crypto/rand"; import "encoding/base64"; b := make([]byte, 32); rand.Read(b); println(base64.StdEncoding.EncodeToString(b))'
 ```
 
+### Command-Line Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-host` | (all interfaces) | Host/IP to bind to |
+| `-port` | 8080 | HTTP server port |
+| `-repo` | | Path to wiki Git repository |
+| `-db` | | Path to SQLite database file |
+| `-templates` | | Path to templates directory (overrides embedded) |
+| `-static` | | Path to static files directory (overrides embedded) |
+| `-init` | | Path to initialization JSON file (run once to set up site) |
+
 ## Development
 
 ```bash
@@ -110,7 +125,10 @@ make test
 # Build
 make build
 
-# Run locally
+# Run in development mode (localhost only, DEV_MODE=1)
+make dev
+
+# Run with default settings (all interfaces)
 make run
 ```
 
