@@ -195,6 +195,9 @@ func (s *Server) Routes() chi.Router {
 			r.Get("/diff", s.handleDiff)
 			r.Get("/attachments", s.handleAttachments)
 			r.Get("/draft", s.handleDraftLoad)
+			// Catch-all for attachment files and nested page paths.
+			// Chi static routes above take priority over this parameterized route.
+			r.Get("/{subpath}", s.handleView)
 		})
 
 		// Write-protected page routes

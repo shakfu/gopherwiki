@@ -52,6 +52,9 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 // handleView handles viewing a wiki page.
 func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 	path := chi.URLParam(r, "path")
+	if subpath := chi.URLParam(r, "subpath"); subpath != "" {
+		path = path + "/" + subpath
+	}
 	if path == "" {
 		s.handleIndex(w, r)
 		return

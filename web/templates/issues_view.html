@@ -94,7 +94,7 @@
 <p class="text-muted">No comments yet.</p>
 {{end}}
 
-{{if (index $.current_user "is_authenticated")}}
+{{if (index $.permissions "write")}}
 <div class="card mt-3 mb-3">
     <div class="card-body">
         <form action="/-/issues/{{.issue.ID}}/comment" method="post">

@@ -1622,6 +1622,50 @@ func TestUploadAttachment(t *testing.T) {
 	}
 }
 
+func TestServeAttachment(t *testing.T) {
+	env := testutil.SetupTestEnv(t)
+
+	// Create a page and an attachment
+	env.Store.Store("mypage.md", "# My Page", "init", storage.Author{Name: "test", Email: "test@test.com"})
+	env.Store.StoreBytes("mypage/report.pdf", []byte("fake-pdf-content"), "add attachment", storage.Author{Name: "test", Email: "test@test.com"})
+
+	// Test 1: Request the attachment URL
+	req := httptest.NewRequest("GET", "/mypage/report.pdf", nil)
+	w := httptest.NewRecorder()
+	env.Router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("attachment: status = %d, want %d; body = %s", w.Code, http.StatusOK, w.Body.String())
+	}
+
+	if w.Body.String() != "fake-pdf-content" {
+		t.Errorf("body = %q, want %q", w.Body.String(), "fake-pdf-content")
+	}
+
+	// Test 2: Non-existent attachment returns 404
+	req = httptest.NewRequest("GET", "/mypage/nonexistent.pdf", nil)
+	w = httptest.NewRecorder()
+	env.Router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("missing attachment: status = %d, want %d", w.Code, http.StatusNotFound)
+	}
+}
+
+func TestNestedPageRouting(t *testing.T) {
+	env := testutil.SetupTestEnv(t)
+
+	env.Store.Store("docs/getting-started.md", "# Getting Started", "init", storage.Author{Name: "test", Email: "test@test.com"})
+
+	req := httptest.NewRequest("GET", "/docs/getting-started", nil)
+	w := httptest.NewRecorder()
+	env.Router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("nested page: status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
 // --- Group D: Security Regression Tests ---
 
 func TestXSS_ScriptTagStripped(t *testing.T) {

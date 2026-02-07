@@ -93,9 +93,15 @@
             <select class="form-control" id="attachment-filename">
               <option value="" selected="selected" disabled="disabled">Select an attachment</option>
               {{range .files}}
-              <option value="{{.filename}}">{{.filename}}</option>
+              <option value="{{.filename}}/--/{{.url}}/--/{{.url}}">{{.filename}}</option>
               {{end}}
             </select>
+            <div style="margin-top: 0.4rem; display: flex; align-items: center; gap: 0.6rem;">
+              <label style="margin: 0; font-weight: normal;"><input type="radio" name="attachment-type" value="link" checked> Link</label>
+              <label style="margin: 0; font-weight: normal;"><input type="radio" name="attachment-type" value="image"> Image</label>
+            </div>
+            <input type="checkbox" id="attachment-absolute" checked style="display: none;">
+            <button onclick="gopherwiki_editor.insert_attachment()" class="btn btn-primary btn-xs" style="margin-top: 0.4rem;">Insert</button>
             {{else}}
             <p class="text-muted">No attachments yet.</p>
             {{end}}
