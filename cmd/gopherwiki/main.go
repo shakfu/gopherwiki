@@ -85,6 +85,7 @@ func fatal(msg string, args ...any) {
 
 func main() {
 	// Parse command line flags
+	host := flag.String("host", "", "Host/IP to bind to (default: all interfaces)")
 	port := flag.Int("port", 8080, "HTTP server port")
 	repoPath := flag.String("repo", "", "Path to wiki git repository")
 	templatesPath := flag.String("templates", "", "Path to templates directory (overrides embedded)")
@@ -267,11 +268,15 @@ Enjoy your wiki!
 	}
 
 	// Start server with graceful shutdown
-	addr := fmt.Sprintf(":%d", *port)
+	addr := fmt.Sprintf("%s:%d", *host, *port)
 	srv := &http.Server{Addr: addr, Handler: router}
 
 	go func() {
-		slog.Info("server listening", "address", "http://localhost"+addr)
+		displayHost := *host
+		if displayHost == "" {
+			displayHost = "localhost"
+		}
+		slog.Info("server listening", "address", fmt.Sprintf("http://%s:%d", displayHost, *port))
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			fatal("server error", "error", err)
 		}

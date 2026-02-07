@@ -94,6 +94,7 @@ func (s *Server) Routes() chi.Router {
 			r.Get("/", s.handleIndex)
 			r.Get("/search", s.handleSearch)
 			r.Post("/search", s.handleSearch)
+			r.Get("/search/partial", s.handleSearchPartial)
 			r.Get("/changelog", s.handleChangelog)
 			r.Get("/commit/{revision}", s.handleCommit)
 			r.Get("/pageindex", s.handlePageIndex)
@@ -122,6 +123,7 @@ func (s *Server) Routes() chi.Router {
 			r.Post("/issues/{id}/edit", s.handleIssueUpdate)
 			r.Post("/issues/{id}/close", s.handleIssueClose)
 			r.Post("/issues/{id}/reopen", s.handleIssueReopen)
+			r.Post("/issues/{id}/comment", s.handleIssueCommentCreate)
 		})
 
 		// Admin-protected routes
@@ -137,6 +139,41 @@ func (s *Server) Routes() chi.Router {
 			r.Post("/admin/site-settings", s.handleAdminSiteSettingsSave)
 			r.Post("/admin/issue-settings", s.handleAdminIssueSettingsSave)
 			r.Post("/issues/{id}/delete", s.handleIssueDelete)
+			r.Post("/issues/{id}/comment/{commentId}/delete", s.handleIssueCommentDelete)
+		})
+
+		// JSON API v1
+		r.Route("/api/v1", func(r chi.Router) {
+			// Read-protected API routes
+			r.Group(func(r chi.Router) {
+				r.Use(s.PermissionChecker.RequireRead)
+				r.Get("/pages", s.handleAPIPageList)
+				r.Get("/pages/*", s.handleAPIPage)
+				r.Get("/search", s.handleAPISearch)
+				r.Get("/changelog", s.handleAPIChangelog)
+				r.Get("/issues", s.handleAPIIssueList)
+				r.Get("/issues/{id}", s.handleAPIIssueGet)
+				r.Get("/issues/{id}/comments", s.handleAPIIssueComments)
+			})
+
+			// Write-protected API routes
+			r.Group(func(r chi.Router) {
+				r.Use(s.PermissionChecker.RequireWrite)
+				r.Put("/pages/*", s.handleAPIPage)
+				r.Delete("/pages/*", s.handleAPIPage)
+				r.Post("/issues", s.handleAPIIssueCreate)
+				r.Put("/issues/{id}", s.handleAPIIssueUpdate)
+				r.Post("/issues/{id}/close", s.handleAPIIssueClose)
+				r.Post("/issues/{id}/reopen", s.handleAPIIssueReopen)
+				r.Post("/issues/{id}/comments", s.handleAPIIssueCommentCreate)
+			})
+
+			// Admin-protected API routes
+			r.Group(func(r chi.Router) {
+				r.Use(s.PermissionChecker.RequireAdmin)
+				r.Delete("/issues/{id}", s.handleAPIIssueDelete)
+				r.Delete("/issues/{id}/comments/{commentId}", s.handleAPIIssueCommentDelete)
+			})
 		})
 	})
 

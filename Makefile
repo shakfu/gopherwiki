@@ -26,7 +26,7 @@ sqlc:
 
 # Development helpers
 dev:
-	@go run $(TAGS) $(LDFLAGS) ./cmd/gopherwiki -repo ./test-repo -port 8080
+	@DEV_MODE=1 go run $(TAGS) $(LDFLAGS) ./cmd/gopherwiki -repo ./test-repo -host 127.0.0.1 -port 8080
 
 fmt:
 	@go fmt ./...

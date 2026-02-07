@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/sa/gopherwiki/internal/util"
+	"github.com/sa/gopherwiki/internal/wiki"
 )
 
 // LoadTemplates loads templates from the given filesystem.
@@ -138,6 +139,9 @@ func (s *Server) templateFuncs() template.FuncMap {
 		"safe": func(s string) template.HTML {
 			return template.HTML(s)
 		},
+		"safeHTML": func(s string) template.HTML {
+			return template.HTML(s)
+		},
 		"trimPrefix": strings.TrimPrefix,
 		"urlFor": URLFor,
 		"hasPermission": func(perm string, perms map[string]bool) bool {
@@ -145,6 +149,46 @@ func (s *Server) templateFuncs() template.FuncMap {
 				return false
 			}
 			return perms[perm]
+		},
+		"renderPageTree": func(nodes []*wiki.PageTreeNode) template.HTML {
+			if len(nodes) == 0 {
+				return ""
+			}
+			var renderNodes func([]*wiki.PageTreeNode, int) string
+			renderNodes = func(nodes []*wiki.PageTreeNode, depth int) string {
+				var b strings.Builder
+				for _, n := range nodes {
+					if len(n.Children) > 0 {
+						b.WriteString("<details")
+						if depth == 0 {
+							b.WriteString(" open")
+						}
+						b.WriteString("><summary>")
+						if n.IsPage {
+							b.WriteString(`<a href="/`)
+							b.WriteString(template.HTMLEscapeString(n.Path))
+							b.WriteString(`" class="sidebar-link">`)
+							b.WriteString(template.HTMLEscapeString(n.Name))
+							b.WriteString("</a>")
+						} else {
+							b.WriteString(template.HTMLEscapeString(n.Name))
+						}
+						b.WriteString("</summary>")
+						b.WriteString(renderNodes(n.Children, depth+1))
+						b.WriteString("</details>")
+					} else if n.IsPage {
+						b.WriteString(`<a href="/`)
+						b.WriteString(template.HTMLEscapeString(n.Path))
+						b.WriteString(`" class="sidebar-link" style="padding-left: `)
+						b.WriteString(fmt.Sprintf("%d", (depth+1)*12))
+						b.WriteString(`px;">`)
+						b.WriteString(template.HTMLEscapeString(n.Name))
+						b.WriteString("</a>")
+					}
+				}
+				return b.String()
+			}
+			return template.HTML(renderNodes(nodes, 0))
 		},
 	}
 }

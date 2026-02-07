@@ -39,9 +39,9 @@
             {{if .templateType}}{{if eq .templateType "editor"}}{{template "editor_navbar_editor" .}}{{end}}{{end}}
             <div class="navbar-content ml-auto">
                 {{if not (and .templateType (eq .templateType "editor"))}}
-                <form action="/-/search" method="post" class="relative">
+                <form action="/-/search" method="get" class="relative">
                 <span class="top-search">
-                <input id="search-query" name="query" type="text" class="form-control mr-5" placeholder="Search" style="padding-right: 3.5rem;">
+                <input id="search-query" name="q" type="text" class="form-control mr-5" placeholder="Search" style="padding-right: 3.5rem;">
                 </span>
                 </form>
                 {{end}}
@@ -118,6 +118,12 @@
                     Admin
                 </a>
                 {{end}}{{end}}
+                {{if .sidebar_tree}}
+                <div class="sidebar-divider"></div>
+                <div class="sidebar-tree" style="padding: 0.25rem 0.5rem; font-size: 0.9rem;">
+                    {{renderPageTree .sidebar_tree}}
+                </div>
+                {{end}}
                 <br />
             </div>
             <div class="sidebar-otter">
@@ -153,6 +159,7 @@
     </div>
 
   <script src="/static/js/halfmoon.js"></script>
+  <script src="/static/js/htmx.2.0.6.min.js"></script>
   <script src="/static/js/gopherwiki.js" type="text/javascript" charset="utf-8"></script>
   {{if .templateType}}
     {{if eq .templateType "page"}}{{template "page_js" .}}{{end}}

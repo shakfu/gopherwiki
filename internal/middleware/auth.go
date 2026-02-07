@@ -1,7 +1,9 @@
 package middleware
 
 import (
+	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/sa/gopherwiki/internal/config"
 	"github.com/sa/gopherwiki/internal/models"
@@ -196,6 +198,18 @@ func (pc *PermissionChecker) canAdmin(user *User) bool {
 func (pc *PermissionChecker) handleUnauthorized(w http.ResponseWriter, r *http.Request, permission string) {
 	user := GetUser(r)
 
+	if isAPIRequest(r) {
+		w.Header().Set("Content-Type", "application/json")
+		if user.IsAnonymous() {
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]string{"error": "authentication required"})
+		} else {
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]string{"error": "insufficient permissions"})
+		}
+		return
+	}
+
 	if user.IsAnonymous() {
 		// Not logged in - redirect to login
 		http.Redirect(w, r, "/-/login?next="+r.URL.Path, http.StatusFound)
@@ -204,6 +218,11 @@ func (pc *PermissionChecker) handleUnauthorized(w http.ResponseWriter, r *http.R
 
 	// Logged in but not authorized - show 403
 	http.Error(w, "Forbidden: insufficient permissions", http.StatusForbidden)
+}
+
+// isAPIRequest checks if the request is for the JSON API.
+func isAPIRequest(r *http.Request) bool {
+	return strings.HasPrefix(r.URL.Path, "/-/api/")
 }
 
 // User is an alias to models.User for use in this package.

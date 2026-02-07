@@ -191,6 +191,29 @@ func (s *Server) handleIssueView(w http.ResponseWriter, r *http.Request) {
 	canEdit := user.IsAuthenticated()
 	canDelete := user.Admin()
 
+	// Load comments
+	comments, err := s.DB.ListIssueComments(ctx, issue.ID)
+	if err != nil {
+		slog.Warn("failed to list issue comments", "error", err)
+	}
+
+	// Render each comment's content as markdown
+	type renderedComment struct {
+		Comment     db.IssueComment
+		HTMLContent template.HTML
+	}
+	var renderedComments []renderedComment
+	for _, c := range comments {
+		html := ""
+		if c.Content != "" {
+			html, _, _ = s.Renderer.Render(c.Content, "")
+		}
+		renderedComments = append(renderedComments, renderedComment{
+			Comment:     c,
+			HTMLContent: template.HTML(html),
+		})
+	}
+
 	data := NewGenericData(fmt.Sprintf("#%d - %s", issue.ID, issue.Title))
 	data["issue"] = issue
 	data["htmlcontent"] = template.HTML(htmlContent)
@@ -199,6 +222,8 @@ func (s *Server) handleIssueView(w http.ResponseWriter, r *http.Request) {
 	data["availableCategories"] = s.getAvailableCategories(ctx)
 	data["canEdit"] = canEdit
 	data["canDelete"] = canDelete
+	data["comments"] = renderedComments
+	data["comment_count"] = len(comments)
 	s.renderTemplate(w, r, "issues_view.html", data)
 }
 
@@ -434,6 +459,85 @@ func (s *Server) handleIssueDelete(w http.ResponseWriter, r *http.Request) {
 
 	s.SessionManager.AddFlashMessage(w, r, "success", "Issue deleted")
 	http.Redirect(w, r, "/-/issues", http.StatusFound)
+}
+
+// handleIssueCommentCreate handles creating a new comment on an issue.
+func (s *Server) handleIssueCommentCreate(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	idStr := chi.URLParam(r, "id")
+	id, err := parseInt64(idStr)
+	if err != nil {
+		s.renderError(w, r, http.StatusBadRequest, "Invalid issue ID")
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		s.renderError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	content := strings.TrimSpace(r.FormValue("content"))
+	if content == "" {
+		s.SessionManager.AddFlashMessage(w, r, "danger", "Comment cannot be empty")
+		http.Redirect(w, r, fmt.Sprintf("/-/issues/%d", id), http.StatusFound)
+		return
+	}
+
+	// Verify issue exists
+	if _, err := s.DB.Queries.GetIssue(ctx, id); err != nil {
+		if err == sql.ErrNoRows {
+			s.renderError(w, r, http.StatusNotFound, "Issue not found")
+			return
+		}
+		s.renderError(w, r, http.StatusInternalServerError, "Failed to get issue")
+		return
+	}
+
+	user := middleware.GetUser(r)
+	authorName := user.GetName()
+	authorEmail := user.GetEmail()
+	if authorName == "" {
+		authorName = "Anonymous"
+	}
+
+	comment, err := s.DB.CreateIssueComment(ctx, id, content, authorName, authorEmail)
+	if err != nil {
+		s.SessionManager.AddFlashMessage(w, r, "danger", "Failed to add comment")
+		http.Redirect(w, r, fmt.Sprintf("/-/issues/%d", id), http.StatusFound)
+		return
+	}
+
+	http.Redirect(w, r, fmt.Sprintf("/-/issues/%d#comment-%d", id, comment.ID), http.StatusFound)
+}
+
+// handleIssueCommentDelete handles deleting a comment (admin only).
+func (s *Server) handleIssueCommentDelete(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+
+	ctx := r.Context()
+	idStr := chi.URLParam(r, "id")
+	id, err := parseInt64(idStr)
+	if err != nil {
+		s.renderError(w, r, http.StatusBadRequest, "Invalid issue ID")
+		return
+	}
+
+	commentIdStr := chi.URLParam(r, "commentId")
+	commentId, err := parseInt64(commentIdStr)
+	if err != nil {
+		s.renderError(w, r, http.StatusBadRequest, "Invalid comment ID")
+		return
+	}
+
+	if err := s.DB.DeleteIssueComment(ctx, commentId); err != nil {
+		s.SessionManager.AddFlashMessage(w, r, "danger", "Failed to delete comment")
+	} else {
+		s.SessionManager.AddFlashMessage(w, r, "success", "Comment deleted")
+	}
+
+	http.Redirect(w, r, fmt.Sprintf("/-/issues/%d", id), http.StatusFound)
 }
 
 // parseTags parses a comma-separated tag string into a slice.

@@ -120,6 +120,13 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name str
 		"admin":  s.PermissionChecker.HasPermission(r, middleware.PermissionAdmin),
 	}
 
+	// Add sidebar page tree when configured
+	if s.Config.SidebarMenutreeMode != "" {
+		if tree, err := s.Wiki.PageTree(); err == nil && len(tree) > 0 {
+			data["sidebar_tree"] = tree
+		}
+	}
+
 	// Add flash messages
 	if flashes := middleware.GetFlashes(r); len(flashes) > 0 {
 		data["flashes"] = flashes

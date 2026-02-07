@@ -17,10 +17,27 @@
 {{define "editor_navbar_editor"}}
 <button onclick="gopherwiki_editor.undo()" class="btn btn-editor btn-xs ml-10" title="Undo"><i class="fas fa-undo"></i></button>
 <button onclick="gopherwiki_editor.redo()" class="btn btn-editor btn-xs" style="margin-left: 0.1rem;" title="Redo"><i class="fas fa-redo"></i></button>
-<button onclick="gopherwiki_editor.bold()" class="btn btn-editor btn-xs ml-5 hidden-sm-and-down" title="Bold"><i class="fa fa-bold"></i></button>
+<span class="hidden-sm-and-down" style="border-left: 1px solid var(--dm-border-color, #ccc); height: 1.5rem; margin: 0 0.3rem;"></span>
+<button onclick="gopherwiki_editor.bold()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Bold"><i class="fa fa-bold"></i></button>
 <button onclick="gopherwiki_editor.italic()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Italic"><i class="fa fa-italic"></i></button>
+<button onclick="gopherwiki_editor.strikethrough()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Strikethrough"><i class="fa fa-strikethrough"></i></button>
 <button onclick="gopherwiki_editor.header()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Header"><i class="fa fa-heading"></i></button>
+<span class="hidden-sm-and-down" style="border-left: 1px solid var(--dm-border-color, #ccc); height: 1.5rem; margin: 0 0.3rem;"></span>
 <button onclick="gopherwiki_editor.link()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Link"><i class="fa fa-link"></i></button>
+<button onclick="gopherwiki_editor.img()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Image"><i class="fa fa-image"></i></button>
+<button onclick="gopherwiki_editor.code()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Inline Code"><i class="fa fa-code"></i></button>
+<button onclick="gopherwiki_editor.codeBlock()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Code Block"><i class="fa fa-file-code"></i></button>
+<span class="hidden-sm-and-down" style="border-left: 1px solid var(--dm-border-color, #ccc); height: 1.5rem; margin: 0 0.3rem;"></span>
+<button onclick="gopherwiki_editor.quote()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Blockquote"><i class="fa fa-quote-left"></i></button>
+<button onclick="gopherwiki_editor.hr()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Horizontal Rule"><i class="fa fa-minus"></i></button>
+<button onclick="gopherwiki_editor.ul()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Unordered List"><i class="fa fa-list-ul"></i></button>
+<button onclick="gopherwiki_editor.ol()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Ordered List"><i class="fa fa-list-ol"></i></button>
+<button onclick="gopherwiki_editor.cl()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Checklist"><i class="fa fa-tasks"></i></button>
+<span class="hidden-sm-and-down" style="border-left: 1px solid var(--dm-border-color, #ccc); height: 1.5rem; margin: 0 0.3rem;"></span>
+<button onclick="gopherwiki_editor.table()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Table"><i class="fa fa-table"></i></button>
+<button onclick="gopherwiki_editor.diagram()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Mermaid Diagram"><i class="fa fa-project-diagram"></i></button>
+<button onclick="gopherwiki_editor.expand()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Collapsible Section"><i class="fa fa-caret-square-down"></i></button>
+<button onclick="gopherwiki_editor.footnote()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Footnote"><i class="fa fa-superscript"></i></button>
 {{end}}
 
 {{define "editor_bodytop"}}

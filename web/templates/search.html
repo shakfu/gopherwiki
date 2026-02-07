@@ -1,33 +1,45 @@
-{{define "generic_content"}}
-<h1>Search</h1>
-
-<form action="{{urlFor "search"}}" method="post" class="mb-20">
-    <div class="input-group">
-        <input type="text" name="query" value="{{.query}}" class="form-control" placeholder="Search wiki pages..." autofocus>
-        <div class="input-group-append">
-            <button type="submit" class="btn btn-primary">Search</button>
-        </div>
-    </div>
-    <small class="form-text text-muted">Supports regular expressions</small>
-</form>
-
+{{define "search_results"}}
 {{if .query}}
 <h2>Results for "{{.query}}"</h2>
-{{if .keys}}
+{{if .results}}
 <div class="search-results">
-    {{range .keys}}
-    <a href="/{{index . 2}}" class="search-result-item">
-        <span class="search-result-title">{{index . 3}}</span>
-        <span class="search-result-badge">{{index . 1}} {{pluralize (index . 1) "match" "matches"}}</span>
-        <span class="search-result-path">/{{index . 2}}</span>
+    {{range .results}}
+    <a href="/{{.Pagepath}}" class="search-result-item">
+        <span class="search-result-title">{{.Pagename}}</span>
+        {{if .Snippet}}<span class="search-result-snippet">{{safeHTML .Snippet}}</span>{{end}}
+        <span class="search-result-path">/{{.Pagepath}}</span>
     </a>
     {{end}}
 </div>
-<p class="mt-10 text-muted">Found {{len .keys}} {{pluralize (len .keys) "page" "pages"}} matching your query.</p>
+<p class="mt-10 text-muted">Found {{len .results}} {{pluralize (len .results) "page" "pages"}} matching your query.</p>
 {{else}}
 <div class="alert alert-info" role="alert">
     No results found for "{{.query}}". Try a different search term or check your spelling.
 </div>
 {{end}}
 {{end}}
+{{end}}
+
+{{define "generic_content"}}
+<h1>Search</h1>
+
+<form action="{{urlFor "search"}}" method="get" class="mb-20">
+    <div class="input-group">
+        <input type="text" name="q" value="{{.query}}" class="form-control" placeholder="Search wiki pages..." autofocus
+            hx-get="/-/search/partial"
+            hx-trigger="keyup changed delay:300ms, search"
+            hx-target="#search-results"
+            hx-include="this"
+            hx-indicator="#search-spinner">
+        <div class="input-group-append">
+            <button type="submit" class="btn btn-primary">Search</button>
+        </div>
+    </div>
+    <small class="form-text text-muted">Supports FTS5 search syntax</small>
+    <span id="search-spinner" class="htmx-indicator" style="margin-left: 0.5rem;">Searching...</span>
+</form>
+
+<div id="search-results">
+{{template "search_results" .}}
+</div>
 {{end}}

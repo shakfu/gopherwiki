@@ -592,27 +592,53 @@ func (s *Server) handleAbout(w http.ResponseWriter, r *http.Request) {
 // handleSearch handles search.
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	query := r.FormValue("query")
+	if query == "" {
+		query = r.URL.Query().Get("q")
+	}
 
-	var keys [][]interface{}
-
+	var results []wiki.SearchResult
 	if query != "" {
-		results, err := s.Wiki.Search(query)
-		if err == nil {
-			for _, result := range results {
-				keys = append(keys, []interface{}{
-					result.Pagename,
-					result.MatchCount,
-					result.Pagepath,
-					result.Pagename,
-				})
-			}
+		var err error
+		results, err = s.Wiki.Search(query)
+		if err != nil {
+			slog.Warn("search failed", "query", query, "error", err)
 		}
 	}
 
 	data := NewGenericData("Search")
 	data["query"] = query
-	data["keys"] = keys
+	data["results"] = results
 	s.renderTemplate(w, r, "search.html", data)
+}
+
+// handleSearchPartial returns only the search results fragment for HTMX requests.
+func (s *Server) handleSearchPartial(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query().Get("q")
+
+	var results []wiki.SearchResult
+	if query != "" {
+		var err error
+		results, err = s.Wiki.Search(query)
+		if err != nil {
+			slog.Warn("search failed", "query", query, "error", err)
+		}
+	}
+
+	data := map[string]interface{}{
+		"query":   query,
+		"results": results,
+	}
+
+	tmpl, ok := s.TemplateMap["search.html"]
+	if !ok {
+		http.Error(w, "template not found", http.StatusInternalServerError)
+		return
+	}
+
+	if err := tmpl.ExecuteTemplate(w, "search_results", data); err != nil {
+		slog.Error("template execution error", "error", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 // handleChangelog handles the changelog.

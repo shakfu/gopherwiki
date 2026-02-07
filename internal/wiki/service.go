@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/sa/gopherwiki/internal/config"
@@ -17,6 +18,7 @@ import (
 type SearchResult struct {
 	Pagename   string
 	Pagepath   string
+	Snippet    string
 	MatchCount int
 }
 
@@ -24,6 +26,14 @@ type SearchResult struct {
 type PageIndexEntry struct {
 	Name string
 	Path string
+}
+
+// PageTreeNode represents a node in the sidebar page tree.
+type PageTreeNode struct {
+	Name     string
+	Path     string
+	Children []*PageTreeNode
+	IsPage   bool
 }
 
 // WikiService provides higher-level wiki operations on top of Storage.
@@ -57,6 +67,7 @@ func (ws *WikiService) Search(query string) ([]SearchResult, error) {
 				results = append(results, SearchResult{
 					Pagename:   pagename,
 					Pagepath:   r.Pagepath,
+					Snippet:    r.Snippet,
 					MatchCount: 1,
 				})
 			}
@@ -231,6 +242,60 @@ func (ws *WikiService) PageIndex() ([]PageIndexEntry, error) {
 	}
 
 	return pages, nil
+}
+
+// PageTree builds a hierarchical tree of all pages for sidebar navigation.
+func (ws *WikiService) PageTree() ([]*PageTreeNode, error) {
+	entries, err := ws.PageIndex()
+	if err != nil {
+		return nil, err
+	}
+
+	root := &PageTreeNode{}
+	nodeMap := map[string]*PageTreeNode{"": root}
+
+	// Ensure parent nodes exist for every path segment.
+	ensureNode := func(pathStr string) *PageTreeNode {
+		if n, ok := nodeMap[pathStr]; ok {
+			return n
+		}
+		parts := strings.Split(pathStr, "/")
+		current := root
+		for i, part := range parts {
+			key := strings.Join(parts[:i+1], "/")
+			if child, ok := nodeMap[key]; ok {
+				current = child
+			} else {
+				child := &PageTreeNode{Name: part, Path: key}
+				current.Children = append(current.Children, child)
+				nodeMap[key] = child
+				current = child
+			}
+		}
+		return current
+	}
+
+	for _, e := range entries {
+		node := ensureNode(e.Path)
+		node.Name = e.Name
+		node.IsPage = true
+	}
+
+	// Sort children alphabetically at every level.
+	var sortTree func(nodes []*PageTreeNode)
+	sortTree = func(nodes []*PageTreeNode) {
+		sort.Slice(nodes, func(i, j int) bool {
+			return strings.ToLower(nodes[i].Name) < strings.ToLower(nodes[j].Name)
+		})
+		for _, n := range nodes {
+			if len(n.Children) > 0 {
+				sortTree(n.Children)
+			}
+		}
+	}
+	sortTree(root.Children)
+
+	return root.Children, nil
 }
 
 // ShowCommit returns metadata and diff for a specific commit.

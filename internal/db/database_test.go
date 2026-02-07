@@ -59,9 +59,9 @@ func TestSchemaVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion failed: %v", err)
 	}
-	// Should be at the latest migration version (currently 3)
-	if version != 3 {
-		t.Errorf("SchemaVersion = %d, want 3", version)
+	// Should be at the latest migration version (currently 4)
+	if version != 4 {
+		t.Errorf("SchemaVersion = %d, want 4", version)
 	}
 }
 
@@ -78,8 +78,8 @@ func TestMigrateIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion failed: %v", err)
 	}
-	if version != 3 {
-		t.Errorf("SchemaVersion after re-migrate = %d, want 3", version)
+	if version != 4 {
+		t.Errorf("SchemaVersion after re-migrate = %d, want 4", version)
 	}
 }
 

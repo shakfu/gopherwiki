@@ -118,7 +118,9 @@ func Open(uri string) (*Database, error) {
 	connStr := dbPath
 	if dbPath != ":memory:" {
 		// Add options for file-based database
-		connStr = dbPath + "?_journal_mode=WAL&_busy_timeout=5000"
+		connStr = dbPath + "?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1"
+	} else {
+		connStr = dbPath + "?_foreign_keys=1"
 	}
 
 	conn, err := sql.Open("sqlite3", connStr)
@@ -201,6 +203,22 @@ var migrations = []migration{
 		}
 		return nil
 	}},
+	{4, "create issue_comments table", func(ctx context.Context, conn *sql.DB) error {
+		if _, err := conn.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS issue_comments (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			issue_id INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+			content TEXT NOT NULL,
+			author_name TEXT,
+			author_email TEXT,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)`); err != nil {
+			return err
+		}
+		_, err := conn.ExecContext(ctx,
+			`CREATE INDEX IF NOT EXISTS idx_issue_comments_issue_id ON issue_comments(issue_id)`)
+		return err
+	}},
 }
 
 // runMigrations runs versioned schema migrations, tracking progress
@@ -272,6 +290,7 @@ func (d *Database) WithTx(tx *sql.Tx) *Queries {
 type PageSearchResult struct {
 	Pagepath string
 	Title    string
+	Snippet  string
 	Rank     float64
 }
 
@@ -282,10 +301,10 @@ type PageIndexData struct {
 	Content  string
 }
 
-// SearchPages searches the FTS5 index and returns ranked results.
+// SearchPages searches the FTS5 index and returns ranked results with snippets.
 func (d *Database) SearchPages(ctx context.Context, query string, limit int) ([]PageSearchResult, error) {
 	rows, err := d.conn.QueryContext(ctx,
-		`SELECT pagepath, title, rank FROM page_fts WHERE page_fts MATCH ? ORDER BY rank LIMIT ?`,
+		`SELECT pagepath, title, snippet(page_fts, 2, '<mark>', '</mark>', '...', 40) as snippet, rank FROM page_fts WHERE page_fts MATCH ? ORDER BY rank LIMIT ?`,
 		query, limit)
 	if err != nil {
 		return nil, err
@@ -295,7 +314,7 @@ func (d *Database) SearchPages(ctx context.Context, query string, limit int) ([]
 	var results []PageSearchResult
 	for rows.Next() {
 		var r PageSearchResult
-		if err := rows.Scan(&r.Pagepath, &r.Title, &r.Rank); err != nil {
+		if err := rows.Scan(&r.Pagepath, &r.Title, &r.Snippet, &r.Rank); err != nil {
 			return nil, err
 		}
 		results = append(results, r)
@@ -447,5 +466,94 @@ func (d *Database) RebuildPageLinks(ctx context.Context, links []PageLinkData) e
 func (d *Database) PageIndexCount(ctx context.Context) (int64, error) {
 	var count int64
 	err := d.conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM page_fts`).Scan(&count)
+	return count, err
+}
+
+// IssueComment represents a comment on an issue.
+type IssueComment struct {
+	ID          int64
+	IssueID     int64
+	Content     string
+	AuthorName  sql.NullString
+	AuthorEmail sql.NullString
+	CreatedAt   sql.NullTime
+	UpdatedAt   sql.NullTime
+}
+
+// CreateIssueComment inserts a new comment on the given issue.
+func (d *Database) CreateIssueComment(ctx context.Context, issueID int64, content, authorName, authorEmail string) (*IssueComment, error) {
+	now := time.Now()
+	result, err := d.conn.ExecContext(ctx,
+		`INSERT INTO issue_comments (issue_id, content, author_name, author_email, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		issueID, content, authorName, authorEmail, now, now)
+	if err != nil {
+		return nil, err
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
+	return &IssueComment{
+		ID:          id,
+		IssueID:     issueID,
+		Content:     content,
+		AuthorName:  sql.NullString{String: authorName, Valid: authorName != ""},
+		AuthorEmail: sql.NullString{String: authorEmail, Valid: authorEmail != ""},
+		CreatedAt:   sql.NullTime{Time: now, Valid: true},
+		UpdatedAt:   sql.NullTime{Time: now, Valid: true},
+	}, nil
+}
+
+// ListIssueComments returns all comments for the given issue, ordered by creation time.
+func (d *Database) ListIssueComments(ctx context.Context, issueID int64) ([]IssueComment, error) {
+	rows, err := d.conn.QueryContext(ctx,
+		`SELECT id, issue_id, content, author_name, author_email, created_at, updated_at
+		 FROM issue_comments WHERE issue_id = ? ORDER BY created_at ASC`, issueID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var comments []IssueComment
+	for rows.Next() {
+		var c IssueComment
+		if err := rows.Scan(&c.ID, &c.IssueID, &c.Content, &c.AuthorName, &c.AuthorEmail, &c.CreatedAt, &c.UpdatedAt); err != nil {
+			return nil, err
+		}
+		comments = append(comments, c)
+	}
+	return comments, rows.Err()
+}
+
+// GetIssueComment returns a single comment by ID.
+func (d *Database) GetIssueComment(ctx context.Context, id int64) (*IssueComment, error) {
+	var c IssueComment
+	err := d.conn.QueryRowContext(ctx,
+		`SELECT id, issue_id, content, author_name, author_email, created_at, updated_at
+		 FROM issue_comments WHERE id = ?`, id).
+		Scan(&c.ID, &c.IssueID, &c.Content, &c.AuthorName, &c.AuthorEmail, &c.CreatedAt, &c.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+// DeleteIssueComment removes a single comment by ID.
+func (d *Database) DeleteIssueComment(ctx context.Context, id int64) error {
+	_, err := d.conn.ExecContext(ctx, `DELETE FROM issue_comments WHERE id = ?`, id)
+	return err
+}
+
+// DeleteIssueComments removes all comments for the given issue.
+func (d *Database) DeleteIssueComments(ctx context.Context, issueID int64) error {
+	_, err := d.conn.ExecContext(ctx, `DELETE FROM issue_comments WHERE issue_id = ?`, issueID)
+	return err
+}
+
+// CountIssueComments returns the number of comments on the given issue.
+func (d *Database) CountIssueComments(ctx context.Context, issueID int64) (int64, error) {
+	var count int64
+	err := d.conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM issue_comments WHERE issue_id = ?`, issueID).Scan(&count)
 	return count, err
 }
