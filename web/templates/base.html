@@ -1,119 +1,114 @@
 {{define "base"}}
 <!DOCTYPE html>
-<html lang="{{if .config}}{{.config.SiteLang}}{{else}}en{{end}}" class="auto-scaling-disabled">
+<html lang="{{if .config}}{{.config.SiteLang}}{{else}}en{{end}}" data-theme="light">
 <head>
   <meta charset="utf-8" />
-  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
-  <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" name="viewport" />
-  <meta name="viewport" content="width=device-width" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta property="og:title" content="{{if .title}}{{.title}}{{else if .site}}{{.site.Name}}{{else}}GopherWiki{{end}}" />
   <meta property="og:type" content="website" />
   <meta property="og:description" content="{{if .config}}{{.config.SiteDescription}}{{else}}A minimalistic wiki powered by Go, markdown and git.{{end}}" />
   <link rel="icon" href="/static/img/otter-favicon2.png">
   <title>{{if .title}}{{.title}} - {{end}}{{if .site}}{{.site.Name}}{{else}}GopherWiki{{end}}</title>
-  <link href="/static/css/halfmoon.min.css" rel="stylesheet" media="screen" />
-  <link href="/static/css/gopherwiki.css" rel="stylesheet" media="screen" />
+  <link href="/static/css/pico.classless.min.css" rel="stylesheet" media="screen" />
+  <link href="{{debugUnixtime "/static/css/gopherwiki.css"}}" rel="stylesheet" media="screen" />
   <link href="/static/css/print.css" rel="stylesheet" media="print" />
   <link rel="stylesheet" href="/static/css/fontawesome-all.min.css">
   <link href="/static/css/pygments.css" rel="stylesheet" media="screen"/>
   <link href="/static/css/roboto.css" rel="stylesheet"/>
+  <script src="{{debugUnixtime "/static/js/gopherwiki-ui.js"}}"></script>
   {{if .templateType}}{{if eq .templateType "page"}}{{template "page_head" .}}{{end}}{{end}}
   {{if .templateType}}{{if eq .templateType "editor"}}{{template "editor_head" .}}{{end}}{{end}}
 </head>
-<body class="with-custom-webkit-scrollbars with-custom-css-scrollbars">
+<body>
 {{if .templateType}}{{if eq .templateType "editor"}}{{template "editor_bodytop" .}}{{end}}{{end}}
-    <div id="page-wrapper" class="page-wrapper with-navbar with-sidebar" data-sidebar-type="overlayed-sm-and-down">
-        <div class="sticky-alerts"></div>
 
-        <!-- Navbar -->
-        <nav class="navbar">
-            <div class="navbar-content relative">
-                <button id="toggle-sidebar-btn" class="btn btn-action" type="button" onclick="halfmoon.toggleSidebar()" title="Toggle Sidebar">
-                    <i class="fas fa-bars"></i>
-                </button>
-            </div>
-            <a href="/" class="navbar-brand ml-10 ml-sm-20">
-                <img src="{{if and .site .site.Logo}}{{.site.Logo}}{{else}}/static/img/otterhead.png{{end}}" alt="" id="site_logo"/>
-                <span class="d-none d-sm-flex text-truncate">{{if .site}}{{.site.Name}}{{else}}GopherWiki{{end}}</span>
-            </a>
-            {{if .templateType}}{{if eq .templateType "editor"}}{{template "editor_navbar_editor" .}}{{end}}{{end}}
-            <div class="navbar-content ml-auto">
-                {{if not (and .templateType (eq .templateType "editor"))}}
-                <form action="/-/search" method="get" class="relative">
-                <span class="top-search">
-                <input id="search-query" name="q" type="text" class="form-control mr-5" placeholder="Search" style="padding-right: 3.5rem;">
-                </span>
-                </form>
-                {{end}}
-                <div class="dropdown">
-                  <button class="btn btn-action" data-toggle="dropdown" type="button" id="navbar-dropdown-toggle-btn-1">
+    <!-- Navbar -->
+    <nav class="wiki-navbar">
+        <button id="toggle-sidebar-btn" class="btn btn-action" type="button" onclick="toggleSidebar()" title="Toggle Sidebar">
+            <i class="fas fa-bars"></i>
+        </button>
+        <a href="/" class="navbar-brand">
+            <img src="{{if and .site .site.Logo}}{{.site.Logo}}{{else}}/static/img/otterhead.png{{end}}" alt="" id="site_logo"/>
+            <span class="d-none d-sm-flex text-truncate">{{if .site}}{{.site.Name}}{{else}}GopherWiki{{end}}</span>
+        </a>
+        {{if .templateType}}{{if eq .templateType "editor"}}{{template "editor_navbar_editor" .}}{{end}}{{end}}
+        <div class="navbar-actions">
+            {{if not (and .templateType (eq .templateType "editor"))}}
+            <form action="/-/search" method="get" class="relative">
+            <span class="top-search">
+            <input id="search-query" name="q" type="text" placeholder="Search" style="padding-right: 2.5rem;">
+            </span>
+            </form>
+            {{end}}
+            <details class="dropdown">
+                <summary class="btn btn-action" title="Menu">
                     <i class="fas fa-ellipsis-v"></i>
-                  </button>
-                  <div class="dropdown-menu dropdown-menu-right w-200" aria-labelledby="navbar-dropdown-toggle-btn-1">
+                </summary>
+                <ul>
                     {{if .templateType}}
                       {{if eq .templateType "page"}}{{template "page_navbardropdown" .}}{{end}}
                     {{end}}
                     {{if not (and .templateType (eq .templateType "page"))}}
-                    <a href="#" class="dropdown-item-with-icon" onclick="halfmoon.toggleDarkMode()">
+                    <li><a href="#" onclick="toggleDarkMode(); return false;">
                         <span class="dropdown-icon"><i class="far fa-moon"></i></span>
                         Toggle dark mode
-                    </a>
+                    </a></li>
                     {{if .current_user}}{{if .current_user.is_authenticated}}
-                    <a href="/-/settings" class="dropdown-item-with-icon">
+                    <li><a href="/-/settings">
                         <span class="dropdown-icon"><i class="fas fa-user-cog"></i></span>
                         Settings
-                    </a>
-                    <a href="/-/logout" class="dropdown-item-with-icon">
+                    </a></li>
+                    <li><a href="/-/logout">
                         <span class="dropdown-icon"><i class="fas fa-sign-out-alt"></i></span>
                         Logout
-                    </a>
+                    </a></li>
                     {{else}}
-                    <a href="/-/login" class="dropdown-item-with-icon">
+                    <li><a href="/-/login">
                         <span class="dropdown-icon"><i class="fas fa-sign-in-alt"></i></span>
                         Login
-                    </a>
+                    </a></li>
                     {{end}}{{else}}
-                    <a href="/-/login" class="dropdown-item-with-icon">
+                    <li><a href="/-/login">
                         <span class="dropdown-icon"><i class="fas fa-sign-in-alt"></i></span>
                         Login
-                    </a>
+                    </a></li>
                     {{end}}
                     {{end}}
-                  </div>
-                </div>
-                {{if .templateType}}
-                  {{if eq .templateType "page"}}{{template "page_navbar" .}}{{end}}
-                  {{if eq .templateType "editor"}}{{template "editor_navbar" .}}{{end}}
-                {{end}}
-            </div>
-        </nav>
+                </ul>
+            </details>
+            {{if .templateType}}
+              {{if eq .templateType "page"}}{{template "page_navbar" .}}{{end}}
+              {{if eq .templateType "editor"}}{{template "editor_navbar" .}}{{end}}
+            {{end}}
+        </div>
+    </nav>
 
+    <div class="wiki-layout">
         <!-- Sidebar -->
-        <div class="sidebar-overlay" onclick="halfmoon.toggleSidebar()"></div>
-        <div class="sidebar d-flex flex-column relative">
+        <aside class="wiki-sidebar">
             <div class="sidebar-menu w-full flex-grow-1">
-                <a href="/" class="sidebar-link sidebar-link-with-icon">
+                <a href="/" class="sidebar-link">
                     <span class="sidebar-icon"><i class="fas fa-home"></i></span>
                     Home
                 </a>
-                <a href="/-/pageindex" class="sidebar-link sidebar-link-with-icon">
+                <a href="/-/pageindex" class="sidebar-link">
                     <span class="sidebar-icon"><i class="fas fa-list"></i></span>
                     A - Z
                 </a>
-                <a href="/-/changelog" class="sidebar-link sidebar-link-with-icon">
+                <a href="/-/changelog" class="sidebar-link">
                     <span class="sidebar-icon"><i class="fas fa-history"></i></span>
                     Changelog
                 </a>
-                <a href="/-/issues" class="sidebar-link sidebar-link-with-icon">
+                <a href="/-/issues" class="sidebar-link">
                     <span class="sidebar-icon"><i class="fas fa-tasks"></i></span>
                     Issues
                 </a>
-                <a href="/-/create" id="create-page-btn" class="sidebar-link sidebar-link-with-icon">
+                <a href="/-/create" id="create-page-btn" class="sidebar-link">
                     <span class="sidebar-icon"><i class="far fa-file"></i></span>
                     Create page
                 </a>
                 {{if .current_user}}{{if .current_user.is_admin}}
-                <a href="/-/admin" class="sidebar-link sidebar-link-with-icon">
+                <a href="/-/admin" class="sidebar-link">
                     <span class="sidebar-icon"><i class="fas fa-cog"></i></span>
                     Admin
                 </a>
@@ -126,41 +121,31 @@
                 {{end}}
                 <br />
             </div>
-            <div class="sidebar-otter">
-                <a href="/-/about" class="sidebar-link">
-                <img class="sidebar-logo" src="{{if and .site .site.Logo}}{{.site.Logo}}{{else}}/static/img/otter.png{{end}}" alt=""/><br/>
-                {{if .site}}{{.site.Name}}{{else}}GopherWiki{{end}}
-                </a>
-            </div>
-        </div>
+        </aside>
+        <div class="sidebar-overlay" onclick="toggleSidebar()"></div>
 
         <!-- Content -->
-        <div class="content-wrapper" id="content-wrapper">
-            <div class="container-fluid">
-                <div class="row">
-                    <div class="col" id="column-main">
-                        <div class="content">
-                            {{if .templateType}}
-                              {{if eq .templateType "page"}}{{template "page_breadcrumbs" .}}{{template "page_content" .}}{{end}}
-                              {{if eq .templateType "editor"}}{{template "editor_content" .}}{{end}}
-                              {{if eq .templateType "generic"}}{{template "generic_content" .}}{{end}}
-                            {{else}}
-                              {{if .htmlcontent}}{{.htmlcontent}}{{else}}<p>Content goes here</p>{{end}}
-                            {{end}}
-                        </div>
-                    </div>
+        <main class="wiki-main" id="content-wrapper">
+            <div class="container">
+                <div class="content">
                     {{if .templateType}}
-                      {{if eq .templateType "page"}}{{template "page_extra_nav" .}}{{end}}
-                      {{if eq .templateType "editor"}}{{template "editor_extra_nav" .}}{{end}}
+                      {{if eq .templateType "page"}}{{template "page_breadcrumbs" .}}{{template "page_content" .}}{{end}}
+                      {{if eq .templateType "editor"}}{{template "editor_content" .}}{{end}}
+                      {{if eq .templateType "generic"}}{{template "generic_content" .}}{{end}}
+                    {{else}}
+                      {{if .htmlcontent}}{{.htmlcontent}}{{else}}<p>Content goes here</p>{{end}}
                     {{end}}
                 </div>
+                {{if .templateType}}
+                  {{if eq .templateType "page"}}{{template "page_extra_nav" .}}{{end}}
+                  {{if eq .templateType "editor"}}{{template "editor_extra_nav" .}}{{end}}
+                {{end}}
             </div>
-        </div>
+        </main>
     </div>
 
-  <script src="/static/js/halfmoon.js"></script>
   <script src="/static/js/htmx.2.0.6.min.js"></script>
-  <script src="/static/js/gopherwiki.js" type="text/javascript" charset="utf-8"></script>
+  <script src="{{debugUnixtime "/static/js/gopherwiki.js"}}" type="text/javascript" charset="utf-8"></script>
   {{if .templateType}}
     {{if eq .templateType "page"}}{{template "page_js" .}}{{end}}
     {{if eq .templateType "editor"}}{{template "editor_js" .}}{{end}}

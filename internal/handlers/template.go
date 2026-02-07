@@ -120,7 +120,7 @@ func (s *Server) TemplateFuncsForTest() template.FuncMap {
 func (s *Server) templateFuncs() template.FuncMap {
 	return template.FuncMap{
 		"debugUnixtime": func(p string) string {
-			if s.Config.Debug {
+			if s.Config.Debug || s.Config.DevMode {
 				return p + "?" + time.Now().Format("20060102150405")
 			}
 			if s.Version != "" {

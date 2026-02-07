@@ -1,3 +1,11 @@
+# Editor build stage
+FROM oven/bun:1 AS editor-builder
+WORKDIR /app
+COPY web/editor/package.json web/editor/bun.lockb web/editor/
+RUN cd web/editor && bun install --frozen-lockfile
+COPY web/editor/ web/editor/
+RUN bun build web/editor/editor.js --outfile=web/static/js/editor.bundle.js --minify --bundle
+
 # Build stage
 FROM golang:1.24-alpine AS builder
 
@@ -12,6 +20,9 @@ RUN go mod download
 
 # Copy source code
 COPY . .
+
+# Copy editor bundle from editor-builder
+COPY --from=editor-builder /app/web/static/js/editor.bundle.js web/static/js/editor.bundle.js
 
 # Build the binary with CGO enabled for SQLite
 RUN CGO_ENABLED=1 GOOS=linux go build -tags fts5 -ldflags="-s -w" -o gopherwiki ./cmd/gopherwiki

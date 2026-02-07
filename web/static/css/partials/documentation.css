@@ -1,9 +1,9 @@
 /* documentation */
 
 .help-button {
-    font-size: 1.2rem !important;
-    border-radius: 0.5rem;
-    padding: 0.5rem 0.8rem;
+    font-size: 0.75rem !important;
+    border-radius: 0.3rem;
+    padding: 0.3rem 0.5rem;
     background-color: rgba(100, 100, 100, 0.1);
     white-space: nowrap;
     position: relative;
@@ -21,43 +21,43 @@
     box-shadow: none;
 }
 
-.dark-mode .collapse-header:focus::after {
+[data-theme="dark"] .collapse-header:focus::after {
     -moz-box-shadow: none;
     -webkit-box-shadow: none;
     box-shadow: none;
 }
 
 details.collapse-panel {
-    margin-bottom: 2rem;
+    margin-bottom: 1.25rem;
 }
 
 .collapse-content {
-    padding: 0.05rem 2rem 0rem 2rem;
+    padding: 0.05rem 1.25rem 0rem 1.25rem;
 }
 
 .pageindex-columns {
-    columns: 8 25rem;
+    columns: 8 16rem;
     column-gap: 3%;
 }
 
 .pageindex-header {
-    padding-left:.8rem;
-    border-bottom: 1px solid rgba(0,0,0,.3);
+    padding-left: 0.5rem;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.3);
 }
 
-.dark-mode .pageindex-header {
-    border-bottom: 1px solid rgba(255,255,255,.3);
+[data-theme="dark"] .pageindex-header {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.3);
 }
 
 .pageindex-letterblock {
     break-inside: avoid-column;
-    padding-bottom: 2rem;
+    padding-bottom: 1.25rem;
 }
 
 .pageindex-pageblock {
-    margin-left:.8rem;
+    margin-left: 0.5rem;
     word-break: normal;
     hyphens: auto;
     overflow-wrap: anywhere;
-    margin-bottom: .2rem;
+    margin-bottom: 0.125rem;
 }

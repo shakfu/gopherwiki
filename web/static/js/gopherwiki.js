@@ -1314,7 +1314,7 @@ window.addEventListener("keydown", function(event) {
     let isContentEditable = event.target.isContentEditable;
     // I'm a bit paranoid here, want to be sure that nothing is missed again
     let isEditable = (isInputElement || isTextAreaElement || tagName === 'input' || tagName === 'textarea' || isContentEditable);
-    let inCodeMirror = document.getElementsByClassName("CodeMirror");
+    let inCodeMirror = document.getElementsByClassName("cm-editor");
     inCodeMirror = inCodeMirror.length === 1 && inCodeMirror[0].contains(event.target);
 
     let command = event.ctrlKey || event.metaKey;
@@ -1452,11 +1452,8 @@ window.addEventListener("keydown", function(event) {
 
     if (noModifiers && key === ']') {
         let colExtra = document.getElementById("column-extra");
-        let colMain = document.getElementById("column-main");
-        if (colExtra != null && colMain != null) {
-            colMain.classList.toggle("col-xl-9");
-            colMain.classList.toggle("col");
-            colExtra.classList.toggle("col-xl-3");
+        if (colExtra != null) {
+            colExtra.classList.toggle("d-none");
             event.preventDefault();
         }
         return;

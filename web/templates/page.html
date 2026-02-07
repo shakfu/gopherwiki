@@ -5,35 +5,51 @@
 {{end}}
 
 {{define "page_navbardropdown"}}
-<a href="/{{.pagepath}}/attachments" class="dropdown-item-with-icon">
+<li><a href="/{{.pagepath}}/attachments">
     <span class="dropdown-icon"><i class="fa fa-paperclip"></i></span>
     Attachments
-</a>
-<a href="/{{.pagepath}}/history" class="dropdown-item-with-icon">
+</a></li>
+<li><a href="/{{.pagepath}}/history">
     <span class="dropdown-icon"><i class="far fa-file-alt"></i></span>
     History
-</a>
-<a href="/{{.pagepath}}/blame" class="dropdown-item-with-icon">
+</a></li>
+<li><a href="/{{.pagepath}}/blame">
     <span class="dropdown-icon"><i class="fas fa-people-arrows"></i></span>
     Blame
-</a>
-<a href="/{{.pagepath}}/rename" class="dropdown-item-with-icon">
+</a></li>
+<li><a href="/{{.pagepath}}/rename">
     <span class="dropdown-icon"><i class="fas fa-exchange-alt"></i></span>
     Rename / Move
-</a>
-<a href="/{{.pagepath}}/delete" class="dropdown-item-with-icon text-danger">
+</a></li>
+<li><a href="/{{.pagepath}}/delete" class="text-danger">
     <span class="dropdown-icon text-danger"><i class="far fa-trash-alt"></i></span>
     Delete
-</a>
-<div class="dropdown-divider mt-5 mb-5"></div>
-<a href="#" class="dropdown-item-with-icon" onclick="halfmoon.toggleDarkMode()">
+</a></li>
+<li class="dropdown-divider"></li>
+<li><a href="#" onclick="toggleDarkMode(); return false;">
     <span class="dropdown-icon"><i class="far fa-moon"></i></span>
     Toggle dark mode
-</a>
-<a href="/-/login" class="dropdown-item-with-icon">
+</a></li>
+{{if .current_user}}{{if .current_user.is_authenticated}}
+<li><a href="/-/settings">
+    <span class="dropdown-icon"><i class="fas fa-user-cog"></i></span>
+    Settings
+</a></li>
+<li><a href="/-/logout">
+    <span class="dropdown-icon"><i class="fas fa-sign-out-alt"></i></span>
+    Logout
+</a></li>
+{{else}}
+<li><a href="/-/login">
     <span class="dropdown-icon"><i class="fas fa-sign-in-alt"></i></span>
     Login
-</a>
+</a></li>
+{{end}}{{else}}
+<li><a href="/-/login">
+    <span class="dropdown-icon"><i class="fas fa-sign-in-alt"></i></span>
+    Login
+</a></li>
+{{end}}
 {{end}}
 
 {{define "page_navbar"}}

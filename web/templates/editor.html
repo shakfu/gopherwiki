@@ -4,36 +4,39 @@
     width: 100%;
 }
 #content_editor {
-    width: 100%;
-    min-height: 400px;
-    font-family: monospace;
-    padding: 10px;
+    display: none;
+}
+.cm-editor {
+    height: calc(100vh - 8rem);
+    min-height: calc(100vh - 8rem);
+    font-size: 14px;
+}
+.cm-editor .cm-scroller {
+    overflow: auto;
 }
 </style>
-<link href="{{urlFor "static" "filename" "css/codemirror.css" | debugUnixtime}}" rel="stylesheet" />
-<link href="{{urlFor "static" "filename" "css/codemirror-theme.css" | debugUnixtime}}" rel="stylesheet" />
 {{end}}
 
 {{define "editor_navbar_editor"}}
 <button onclick="gopherwiki_editor.undo()" class="btn btn-editor btn-xs ml-10" title="Undo"><i class="fas fa-undo"></i></button>
 <button onclick="gopherwiki_editor.redo()" class="btn btn-editor btn-xs" style="margin-left: 0.1rem;" title="Redo"><i class="fas fa-redo"></i></button>
-<span class="hidden-sm-and-down" style="border-left: 1px solid var(--dm-border-color, #ccc); height: 1.5rem; margin: 0 0.3rem;"></span>
+<span class="hidden-sm-and-down" style="border-left: 1px solid rgba(128,128,128,0.3); height: 1.5rem; margin: 0 0.3rem;"></span>
 <button onclick="gopherwiki_editor.bold()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Bold"><i class="fa fa-bold"></i></button>
 <button onclick="gopherwiki_editor.italic()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Italic"><i class="fa fa-italic"></i></button>
 <button onclick="gopherwiki_editor.strikethrough()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Strikethrough"><i class="fa fa-strikethrough"></i></button>
 <button onclick="gopherwiki_editor.header()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Header"><i class="fa fa-heading"></i></button>
-<span class="hidden-sm-and-down" style="border-left: 1px solid var(--dm-border-color, #ccc); height: 1.5rem; margin: 0 0.3rem;"></span>
+<span class="hidden-sm-and-down" style="border-left: 1px solid rgba(128,128,128,0.3); height: 1.5rem; margin: 0 0.3rem;"></span>
 <button onclick="gopherwiki_editor.link()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Link"><i class="fa fa-link"></i></button>
 <button onclick="gopherwiki_editor.img()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Image"><i class="fa fa-image"></i></button>
 <button onclick="gopherwiki_editor.code()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Inline Code"><i class="fa fa-code"></i></button>
 <button onclick="gopherwiki_editor.codeBlock()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Code Block"><i class="fa fa-file-code"></i></button>
-<span class="hidden-sm-and-down" style="border-left: 1px solid var(--dm-border-color, #ccc); height: 1.5rem; margin: 0 0.3rem;"></span>
+<span class="hidden-sm-and-down" style="border-left: 1px solid rgba(128,128,128,0.3); height: 1.5rem; margin: 0 0.3rem;"></span>
 <button onclick="gopherwiki_editor.quote()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Blockquote"><i class="fa fa-quote-left"></i></button>
 <button onclick="gopherwiki_editor.hr()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Horizontal Rule"><i class="fa fa-minus"></i></button>
 <button onclick="gopherwiki_editor.ul()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Unordered List"><i class="fa fa-list-ul"></i></button>
 <button onclick="gopherwiki_editor.ol()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Ordered List"><i class="fa fa-list-ol"></i></button>
 <button onclick="gopherwiki_editor.cl()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Checklist"><i class="fa fa-tasks"></i></button>
-<span class="hidden-sm-and-down" style="border-left: 1px solid var(--dm-border-color, #ccc); height: 1.5rem; margin: 0 0.3rem;"></span>
+<span class="hidden-sm-and-down" style="border-left: 1px solid rgba(128,128,128,0.3); height: 1.5rem; margin: 0 0.3rem;"></span>
 <button onclick="gopherwiki_editor.table()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Table"><i class="fa fa-table"></i></button>
 <button onclick="gopherwiki_editor.diagram()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Mermaid Diagram"><i class="fa fa-project-diagram"></i></button>
 <button onclick="gopherwiki_editor.expand()" class="btn btn-editor btn-xs hidden-sm-and-down" title="Collapsible Section"><i class="fa fa-caret-square-down"></i></button>
@@ -44,16 +47,16 @@
 <div class="modal" id="modal-commit" tabindex="-1" role="dialog">
   <div class="modal-dialog" role="document">
     <div class="modal-content">
-      <a href="#" class="close" onclick="gopherwiki.toggleModal('modal-commit')" role="button" aria-label="Close">
+      <a href="#" class="close" onclick="gopherwiki.toggleModal('modal-commit'); return false;" role="button" aria-label="Close">
         <span aria-hidden="true">&times;</span>
       </a>
       <h5 class="modal-title">Save {{.pagename}}</h5>
       <form id="saveform" action="/{{.pagepath}}/save" method="post" autocomplete="off">
       <input id="save_content" type="hidden" name="content" value="">
       <input id="save_revision" type="hidden" name="revision" value="">
-        <div class="form-group">
-            <label for="commit-message" class="required">Commit Message</label>
-            <input name="commit" id="commit-message" type="text" class="form-control" placeholder="Your commit message here" required="required">
+        <div>
+            <label for="commit-message">Commit Message</label>
+            <input name="commit" id="commit-message" type="text" placeholder="Your commit message here" required="required">
         </div>
         <input class="btn btn-primary btn-block" type="submit" value="Save">
       </form>
@@ -84,13 +87,13 @@
 {{end}}
 
 {{define "editor_extra_nav"}}
-<div class="col-xl-3 d-none d-xl-block extra-nav-container" id="column-extra">
+<div class="d-none d-xl-block extra-nav-container" id="column-extra">
     <div class="extra-nav" id="extra-nav">
         <div id="extranav-attachments">
             <h5 class="sidebar-title"><a class="sidebar-title-link" href="/{{.pagepath}}/attachments">Attachments <i class="fa fa-paperclip"></i></a></h5>
             <div class="sidebar-divider"></div>
             {{if .files}}
-            <select class="form-control" id="attachment-filename">
+            <select id="attachment-filename">
               <option value="" selected="selected" disabled="disabled">Select an attachment</option>
               {{range .files}}
               <option value="{{.filename}}/--/{{.url}}/--/{{.url}}">{{.filename}}</option>
@@ -111,9 +114,7 @@
 {{end}}
 
 {{define "editor_js"}}
-<script src="{{urlFor "static" "filename" "js/codemirror.min.js" | debugUnixtime}}" type="text/javascript" charset="utf-8"></script>
-<script src="{{urlFor "static" "filename" "js/cm-continuelist.js" | debugUnixtime}}" type="text/javascript" charset="utf-8"></script>
-<script src="{{urlFor "static" "filename" "js/cm-modes.min.js" | debugUnixtime}}" type="text/javascript" charset="utf-8"></script>
+<script src="{{urlFor "static" "filename" "js/editor.bundle.js" | debugUnixtime}}" type="text/javascript" charset="utf-8"></script>
 <script type="text/javascript">
     const pagepath = "{{.pagepath}}";
     const currentRevision = "{{.revision}}";
@@ -121,29 +122,11 @@
     let lastSavedContent = "";
     let autosaveTimer = null;
 
-    const cm_editor = CodeMirror.fromTextArea(document.getElementById("content_editor"), {
-        mode: 'markdown',
-        lineNumbers: true,
-        theme: "gopherwiki",
-        lineWrapping: true,
-        indentWithTabs: false,
-        spellcheck: true,
-        inputStyle: 'contenteditable',
-        indentUnit: 4,
-        autofocus: true,
-        extraKeys: {
-            "Enter": "newlineAndIndentContinueMarkdownList",
-            "Shift-Tab": "indentLess",
-            "Tab": (cm) => {
-                if (cm.somethingSelected()) {
-                    cm.execCommand('indentMore');
-                } else {
-                    cm.execCommand('insertSoftTab');
-                }
-            }
-        },
-    });
+    const editorParent = document.getElementById("editor_block");
+    const initialContent = document.getElementById("content_editor").value;
+    const cm_editor = GopherWikiEditor.createEditor(editorParent, initialContent);
     cm_editor.setCursor({ line: {{.cursor_line}}, ch: {{.cursor_ch}} });
+    cm_editor.focus();
     lastSavedContent = cm_editor.getValue();
 
     const preview_btn = document.querySelector("#preview_btn");
@@ -155,7 +138,7 @@
     function saveDraft() {
         const content = cm_editor.getValue();
         if (content === lastSavedContent) {
-            return; // No changes
+            return;
         }
         const cursor = cm_editor.getCursor();
         const formData = new FormData();
@@ -188,7 +171,6 @@
         .then(response => response.json())
         .then(data => {
             if (data.found && data.content) {
-                // Check if draft is for current revision or newer
                 if (data.revision === currentRevision || currentRevision === "") {
                     if (data.content !== cm_editor.getValue()) {
                         if (confirm("A draft was found. Do you want to restore it?")) {
@@ -219,7 +201,7 @@
     let changeTimer = null;
     cm_editor.on("change", function() {
         if (changeTimer) clearTimeout(changeTimer);
-        changeTimer = setTimeout(saveDraft, 5000); // Save 5 seconds after last change
+        changeTimer = setTimeout(saveDraft, 5000);
     });
 
     /* save */
@@ -227,7 +209,6 @@
         const content_editor = cm_editor.getValue();
         document.getElementById('save_content').value = content_editor;
         document.getElementById('save_revision').value = currentRevision;
-        // Delete draft on successful save
         deleteDraft();
         if (autosaveTimer) clearInterval(autosaveTimer);
     };

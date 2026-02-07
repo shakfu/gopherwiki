@@ -4,18 +4,18 @@ table.diff {
     width: 100%;
 }
 table.diff td {
-    padding: 0.1rem 1.5rem;
+    padding: 0.1rem 1rem;
 }
 table.diff td.filename {
-    padding-top: 1rem;
+    padding-top: 0.6rem;
     padding-left: 0;
-    border-bottom: 1px solid rgba(128,128,128,0.25);
+    border-bottom: 1px solid rgba(128, 128, 128, 0.25);
 }
 table.diff tr.added,
 table.diff tr.removed,
 table.diff td.value,
 table.diff td.hunk {
-    font-family: SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
+    font-family: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
 tr.removed {
     color: rgba(0, 0, 0, 0.85);
@@ -27,23 +27,23 @@ tr.added {
     background-color: #d5f9e5;
     border-color: #0be881;
 }
-.dark-mode tr.removed {
+[data-theme="dark"] tr.removed {
     color: #ff4d4f;
     background-color: #301923;
     border-color: #8c0e2e;
 }
-.dark-mode tr.added {
+[data-theme="dark"] tr.added {
     color: #0be881;
     background-color: #17312a;
     border-color: #0d8951;
 }
 .diff-decoration {
-    width: 0.5rem;
+    width: 0.3rem;
 }
 
 table .min {
     width: 1%;
-    padding-right: 0.4rem;
+    padding-right: 0.25rem;
 }
 table .linenumber {
     text-align: right;
@@ -60,35 +60,32 @@ table.blame td {
 }
 
 table.blame .tt {
-    font-family: SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
+    font-family: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     white-space: pre-wrap;
-    padding-left: 1rem;
+    padding-left: 0.6rem;
 }
 
 table.compact td {
-    padding: 0.5rem 0.2rem;
+    padding: 0.3rem 0.15rem;
 }
 
 table.blame tr.chunk-start > td {
-    padding-top: 0.2rem;
+    padding-top: 0.15rem;
 }
 
 .text-match {
     background-color: #ffcf00 !important;
-    color: rgba(0,0,0,.85);
-    padding: 0rem 0.2em 0rem 0.2rem;
+    color: rgba(0, 0, 0, 0.85);
+    padding: 0rem 0.15em 0rem 0.15rem;
 }
 a span.page-match {
-    /*color: #fff;
-    background-color: #1890ff;*/
     background-color: #ffcf00 !important;
-    color: rgba(0,0,0,.85);
-    background-color: #FFCf00;
-    padding: 0.2em;
+    color: rgba(0, 0, 0, 0.85);
+    padding: 0.15em;
 }
 a:hover span.page-match {
     background-color: #ffcf00 !important;
-    color: rgba(0,0,0,.85);
+    color: rgba(0, 0, 0, 0.85);
     text-decoration: underline;
-    padding: 0.2em;
+    padding: 0.15em;
 }

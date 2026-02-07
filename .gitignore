@@ -39,5 +39,8 @@ repository/
 # Docker
 docker-compose.override.yml
 
+# Editor build
+web/editor/node_modules/
+
 # Logs
 *.log

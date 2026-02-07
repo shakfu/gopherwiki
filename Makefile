@@ -8,7 +8,10 @@ TAGS := -tags fts5
 
 all: build
 
-build:
+build-editor:
+	@bun build web/editor/editor.js --outfile=web/static/js/editor.bundle.js --minify --bundle
+
+build: build-editor
 	@go build $(TAGS) $(LDFLAGS) -o bin/gopherwiki ./cmd/gopherwiki
 
 run: build
