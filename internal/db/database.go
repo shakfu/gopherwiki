@@ -219,6 +219,11 @@ var migrations = []migration{
 			`CREATE INDEX IF NOT EXISTS idx_issue_comments_issue_id ON issue_comments(issue_id)`)
 		return err
 	}},
+	{5, "add composite index on drafts", func(ctx context.Context, conn *sql.DB) error {
+		_, err := conn.ExecContext(ctx,
+			`CREATE INDEX IF NOT EXISTS idx_drafts_pagepath_author ON drafts(pagepath, author_email)`)
+		return err
+	}},
 }
 
 // runMigrations runs versioned schema migrations, tracking progress
@@ -469,91 +474,3 @@ func (d *Database) PageIndexCount(ctx context.Context) (int64, error) {
 	return count, err
 }
 
-// IssueComment represents a comment on an issue.
-type IssueComment struct {
-	ID          int64
-	IssueID     int64
-	Content     string
-	AuthorName  sql.NullString
-	AuthorEmail sql.NullString
-	CreatedAt   sql.NullTime
-	UpdatedAt   sql.NullTime
-}
-
-// CreateIssueComment inserts a new comment on the given issue.
-func (d *Database) CreateIssueComment(ctx context.Context, issueID int64, content, authorName, authorEmail string) (*IssueComment, error) {
-	now := time.Now()
-	result, err := d.conn.ExecContext(ctx,
-		`INSERT INTO issue_comments (issue_id, content, author_name, author_email, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		issueID, content, authorName, authorEmail, now, now)
-	if err != nil {
-		return nil, err
-	}
-	id, err := result.LastInsertId()
-	if err != nil {
-		return nil, err
-	}
-	return &IssueComment{
-		ID:          id,
-		IssueID:     issueID,
-		Content:     content,
-		AuthorName:  sql.NullString{String: authorName, Valid: authorName != ""},
-		AuthorEmail: sql.NullString{String: authorEmail, Valid: authorEmail != ""},
-		CreatedAt:   sql.NullTime{Time: now, Valid: true},
-		UpdatedAt:   sql.NullTime{Time: now, Valid: true},
-	}, nil
-}
-
-// ListIssueComments returns all comments for the given issue, ordered by creation time.
-func (d *Database) ListIssueComments(ctx context.Context, issueID int64) ([]IssueComment, error) {
-	rows, err := d.conn.QueryContext(ctx,
-		`SELECT id, issue_id, content, author_name, author_email, created_at, updated_at
-		 FROM issue_comments WHERE issue_id = ? ORDER BY created_at ASC`, issueID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var comments []IssueComment
-	for rows.Next() {
-		var c IssueComment
-		if err := rows.Scan(&c.ID, &c.IssueID, &c.Content, &c.AuthorName, &c.AuthorEmail, &c.CreatedAt, &c.UpdatedAt); err != nil {
-			return nil, err
-		}
-		comments = append(comments, c)
-	}
-	return comments, rows.Err()
-}
-
-// GetIssueComment returns a single comment by ID.
-func (d *Database) GetIssueComment(ctx context.Context, id int64) (*IssueComment, error) {
-	var c IssueComment
-	err := d.conn.QueryRowContext(ctx,
-		`SELECT id, issue_id, content, author_name, author_email, created_at, updated_at
-		 FROM issue_comments WHERE id = ?`, id).
-		Scan(&c.ID, &c.IssueID, &c.Content, &c.AuthorName, &c.AuthorEmail, &c.CreatedAt, &c.UpdatedAt)
-	if err != nil {
-		return nil, err
-	}
-	return &c, nil
-}
-
-// DeleteIssueComment removes a single comment by ID.
-func (d *Database) DeleteIssueComment(ctx context.Context, id int64) error {
-	_, err := d.conn.ExecContext(ctx, `DELETE FROM issue_comments WHERE id = ?`, id)
-	return err
-}
-
-// DeleteIssueComments removes all comments for the given issue.
-func (d *Database) DeleteIssueComments(ctx context.Context, issueID int64) error {
-	_, err := d.conn.ExecContext(ctx, `DELETE FROM issue_comments WHERE issue_id = ?`, issueID)
-	return err
-}
-
-// CountIssueComments returns the number of comments on the given issue.
-func (d *Database) CountIssueComments(ctx context.Context, issueID int64) (int64, error) {
-	var count int64
-	err := d.conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM issue_comments WHERE issue_id = ?`, issueID).Scan(&count)
-	return count, err
-}

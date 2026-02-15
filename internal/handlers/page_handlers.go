@@ -176,45 +176,24 @@ func (s *Server) handleSave(w http.ResponseWriter, r *http.Request) {
 	content := r.FormValue("content")
 	message := r.FormValue("commit")
 	formRevision := r.FormValue("revision")
+	author := s.getAuthor(r)
 
-	page, err := wiki.NewPage(s.Storage, s.Config, path, "")
+	result, err := s.Wiki.SavePage(r.Context(), path, content, message, formRevision, author)
 	if err != nil {
 		s.renderError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	// Optimistic locking: reject saves where the base revision no longer matches HEAD
-	if formRevision != "" && page.Exists && page.Metadata != nil && page.Metadata.Revision != formRevision {
-		// Another user saved between edit-load and save-submit
-		currentRevision := page.Metadata.Revision
-		data := NewEditorData(page, content, 0, 0, currentRevision, nil)
+	if result.Conflict {
+		currentRevision := result.Page.Metadata.Revision
+		data := NewEditorData(result.Page, content, 0, 0, currentRevision, nil)
 		data["conflict_message"] = "Edit conflict: this page was modified by another user since you started editing. Your changes are preserved below. Please review and save again."
 		w.WriteHeader(http.StatusConflict)
 		s.renderTemplate(w, r, "editor.html", data)
 		return
 	}
 
-	author := s.getAuthor(r)
-
-	if message == "" {
-		if page.Exists {
-			message = "Updated " + page.Pagename
-		} else {
-			message = "Created " + page.Pagename
-		}
-	}
-
-	_, err = page.Save(content, message, author)
-	if err != nil {
-		s.renderError(w, r, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	if err := s.Wiki.IndexPage(r.Context(), page.Pagepath, content); err != nil {
-		slog.Warn("failed to index page", "path", page.Pagepath, "error", err)
-	}
-
-	http.Redirect(w, r, "/"+page.Pagepath, http.StatusFound)
+	http.Redirect(w, r, "/"+result.Page.Pagepath, http.StatusFound)
 }
 
 // handleHistory handles viewing page history.
@@ -334,26 +313,11 @@ func (s *Server) handleDeleteForm(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	path := chi.URLParam(r, "path")
 	message := r.FormValue("message")
-
-	page, err := wiki.NewPage(s.Storage, s.Config, path, "")
-	if err != nil {
-		s.renderError(w, r, http.StatusInternalServerError, err.Error())
-		return
-	}
-
 	author := s.getAuthor(r)
 
-	if message == "" {
-		message = page.Pagename + " deleted."
-	}
-
-	if err := page.Delete(message, author, true); err != nil {
+	if err := s.Wiki.DeletePage(r.Context(), path, message, author); err != nil {
 		s.renderError(w, r, http.StatusInternalServerError, err.Error())
 		return
-	}
-
-	if err := s.Wiki.RemovePageFromIndex(r.Context(), page.Pagepath); err != nil {
-		slog.Warn("failed to remove page from index", "path", page.Pagepath, "error", err)
 	}
 
 	http.Redirect(w, r, "/-/changelog", http.StatusFound)
@@ -532,7 +496,7 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	diff, err := s.Wiki.Diff(revA, revB)
+	diff, err := s.Wiki.Diff(r.Context(), revA, revB)
 	if err != nil {
 		s.renderError(w, r, http.StatusInternalServerError, err.Error())
 		return
@@ -602,7 +566,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	var results []wiki.SearchResult
 	if query != "" {
 		var err error
-		results, err = s.Wiki.Search(query)
+		results, err = s.Wiki.Search(r.Context(), query)
 		if err != nil {
 			slog.Warn("search failed", "query", query, "error", err)
 		}
@@ -621,7 +585,7 @@ func (s *Server) handleSearchPartial(w http.ResponseWriter, r *http.Request) {
 	var results []wiki.SearchResult
 	if query != "" {
 		var err error
-		results, err = s.Wiki.Search(query)
+		results, err = s.Wiki.Search(r.Context(), query)
 		if err != nil {
 			slog.Warn("search failed", "query", query, "error", err)
 		}
@@ -644,9 +608,42 @@ func (s *Server) handleSearchPartial(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleSearchDropdown returns a compact dropdown fragment for the navbar search.
+func (s *Server) handleSearchDropdown(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query().Get("q")
+
+	var results []wiki.SearchResult
+	if query != "" {
+		var err error
+		results, err = s.Wiki.Search(r.Context(), query)
+		if err != nil {
+			slog.Warn("search dropdown failed", "query", query, "error", err)
+		}
+		if len(results) > 8 {
+			results = results[:8]
+		}
+	}
+
+	data := map[string]interface{}{
+		"query":   query,
+		"results": results,
+	}
+
+	tmpl, ok := s.TemplateMap["search.html"]
+	if !ok {
+		http.Error(w, "template not found", http.StatusInternalServerError)
+		return
+	}
+
+	if err := tmpl.ExecuteTemplate(w, "search_dropdown", data); err != nil {
+		slog.Error("template execution error", "error", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
 // handleChangelog handles the changelog.
 func (s *Server) handleChangelog(w http.ResponseWriter, r *http.Request) {
-	changelog, err := s.Wiki.Changelog(100)
+	changelog, err := s.Wiki.Changelog(r.Context(), 100)
 	if err != nil {
 		changelog = []storage.CommitMetadata{}
 	}
@@ -660,7 +657,7 @@ func (s *Server) handleChangelog(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request) {
 	revision := chi.URLParam(r, "revision")
 
-	meta, diff, err := s.Wiki.ShowCommit(revision)
+	meta, diff, err := s.Wiki.ShowCommit(r.Context(), revision)
 	if err != nil {
 		s.renderError(w, r, http.StatusNotFound, err.Error())
 		return
@@ -686,7 +683,7 @@ func (s *Server) handleRevertForm(w http.ResponseWriter, r *http.Request) {
 
 	revision := chi.URLParam(r, "revision")
 
-	meta, _, err := s.Wiki.ShowCommit(revision)
+	meta, _, err := s.Wiki.ShowCommit(r.Context(), revision)
 	if err != nil {
 		s.renderError(w, r, http.StatusNotFound, err.Error())
 		return
@@ -710,7 +707,7 @@ func (s *Server) handleRevert(w http.ResponseWriter, r *http.Request) {
 
 	author := s.getAuthor(r)
 
-	if err := s.Wiki.Revert(revision, message, author); err != nil {
+	if err := s.Wiki.Revert(r.Context(), revision, message, author); err != nil {
 		s.SessionManager.AddFlashMessage(w, r, "danger", "Failed to revert commit: "+err.Error())
 		http.Redirect(w, r, "/-/commit/"+revision, http.StatusFound)
 		return
@@ -722,7 +719,7 @@ func (s *Server) handleRevert(w http.ResponseWriter, r *http.Request) {
 
 // handlePageIndex handles the page index.
 func (s *Server) handlePageIndex(w http.ResponseWriter, r *http.Request) {
-	entries, err := s.Wiki.PageIndex()
+	entries, err := s.Wiki.PageIndex(r.Context())
 	if err != nil {
 		s.renderError(w, r, http.StatusInternalServerError, err.Error())
 		return

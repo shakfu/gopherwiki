@@ -1474,6 +1474,28 @@ window.addEventListener("keydown", function(event) {
 });
 
 
+/* Search dropdown: close on click outside or Escape */
+document.addEventListener("click", function(event) {
+    var dropdown = document.getElementById("search-dropdown");
+    if (!dropdown) return;
+    var wrapper = dropdown.closest(".search-dropdown-wrapper");
+    if (wrapper && !wrapper.contains(event.target)) {
+        dropdown.innerHTML = "";
+    }
+});
+
+document.addEventListener("keydown", function(event) {
+    if (event.key === "Escape") {
+        var dropdown = document.getElementById("search-dropdown");
+        if (dropdown && dropdown.innerHTML.trim() !== "") {
+            dropdown.innerHTML = "";
+            var input = document.getElementById("search-query");
+            if (input) input.blur();
+            event.preventDefault();
+        }
+    }
+});
+
 let sidebar_links = document.querySelectorAll('a.sidebar-link');
 let header_anchors = document.querySelectorAll('div.page > h1, div.page > h2, div.page > h3, div.page > h4, div.page > h5, div.page > h6');
 

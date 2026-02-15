@@ -15,21 +15,21 @@ build: build-editor
 	@go build $(TAGS) $(LDFLAGS) -o bin/gopherwiki ./cmd/gopherwiki
 
 run: build
-	@./bin/gopherwiki -repo ./test-repo -port 8080
+	@./bin/gopherwiki -repo ./build/test-repo -port 8080
 
 test:
 	@go test $(TAGS) -v ./...
 
 clean:
 	@rm -rf bin/
-	@rm -rf test-repo/
+	@rm -rf build/
 
 sqlc:
 	@sqlc generate
 
 # Development helpers
 dev:
-	@DEV_MODE=1 go run $(TAGS) $(LDFLAGS) ./cmd/gopherwiki -repo ./test-repo -host 127.0.0.1 -port 8080
+	@DEV_MODE=1 go run $(TAGS) $(LDFLAGS) ./cmd/gopherwiki -repo ./build/test-repo -host 127.0.0.1 -port 8080
 
 fmt:
 	@go fmt ./...
@@ -45,4 +45,4 @@ docker-build:
 	@docker build -t gopherwiki:$(VERSION) .
 
 docker-run:
-	@docker run -p 8080:8080 -v $(PWD)/test-repo:/wiki gopherwiki:$(VERSION)
+	@docker run -p 8080:8080 -v $(PWD)/build/test-repo:/wiki gopherwiki:$(VERSION)

@@ -57,6 +57,18 @@ CREATE TABLE IF NOT EXISTS issues (
 CREATE INDEX IF NOT EXISTS idx_issues_status ON issues(status);
 CREATE INDEX IF NOT EXISTS idx_issues_created_at ON issues(created_at);
 
+CREATE TABLE IF NOT EXISTS issue_comments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    issue_id INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    author_name TEXT,
+    author_email TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_issue_comments_issue_id ON issue_comments(issue_id);
+
 -- Additional tables (page_fts, page_links, schema_version) and column additions
 -- are managed by versioned migrations in database.go:runMigrations().
 -- FTS5 virtual tables cannot be in this file because sqlc cannot parse them.

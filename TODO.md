@@ -3,15 +3,17 @@
 ## High Priority
 
 - [ ] Add CSRF protection to forms
+- [ ] Set `Secure` flag on session cookies for production
+- [ ] Fix timing attack in authentication (compare dummy hash on user-not-found)
+- [ ] URL-encode login redirect `next` parameter and validate against open redirects
+- [ ] Sanitize upload filenames in handler (strip directory components, reject suspicious characters)
 - [ ] Implement email sending for password recovery and notifications
 - [ ] Add user email confirmation flow
-- [ ] CI/CD pipeline (GitHub Actions: test, vet, lint, build, Docker image on tagged releases)
 
 ## Architecture / Refactoring
 
-- [ ] Clean up remaining Python configuration naming leftovers (SQLALCHEMY_DATABASE_URI fallback, etc.)
-- [ ] Consolidate `sql.Null*` conversions (`db.NullBool`, `db.NullString`, etc.) into shared `db` package -- currently duplicated across handlers and models
-- [ ] Configuration file support (YAML/TOML alternative to env-only, with env vars taking precedence)
+- [x] Clean up remaining Python configuration naming leftovers (SQLALCHEMY_DATABASE_URI fallback, etc.)
+- [x] Configuration file support (YAML/TOML alternative to env-only, with env vars taking precedence)
 
 ## Features
 
@@ -46,6 +48,20 @@
 
 ## UI/UX
 
+- [ ] Remove `user-scalable=0` from viewport meta tag (accessibility: allows pinch-to-zoom)
+- [ ] Cap content line length (`max-width: 50rem` on content area for readability)
+- [ ] Add page action bar below breadcrumbs (History, Attachments, Source, Blame as visible links)
+- [ ] Add mobile editor toolbar (horizontally-scrollable row with common formatting actions)
+- [ ] Navbar search dropdown via HTMX (show 5-8 quick results without full page navigation)
+- [ ] Pre-fill commit message with auto-generated default (e.g. "Update PageName")
+- [ ] Subset Font Awesome to used icons only, or switch to inline SVG icons
+- [ ] Expand HTMX usage for issue close/reopen and comment submission (avoid full-page reloads)
+- [ ] Replace `confirm()` dialogs with inline confirmation patterns (delete actions, draft discard)
+- [ ] Add skip-to-content link and `aria-label` on search input and icon-only buttons
+- [ ] Add collapsible TOC (`<details>`) for screens under 1200px
+- [ ] Add "From" / "To" column headers on history comparison radio buttons
+- [ ] Replace "Supports FTS5 search syntax" help text with user-friendly tips
+- [ ] Group sidebar links by intent (Navigation vs Actions vs Admin)
 - [ ] Improve mobile responsiveness (editor, diff views, blame views, collapsible sidebar, touch-friendly buttons)
 - [ ] Dark mode toggle (persisted in user prefs or localStorage, ensure custom CSS respects dark mode classes)
 - [ ] Better 404 experience (fuzzy search suggestions for similar page names, recent pages, prominent "Create this page" button)
@@ -69,7 +85,6 @@
 
 ## Documentation
 
-- [ ] Add API documentation
 - [ ] Add deployment guides (nginx, caddy reverse proxy)
 
 ## DevOps

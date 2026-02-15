@@ -37,7 +37,7 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("failed to list users", "error", err)
 	}
-	pages, err := s.Wiki.PageIndex()
+	pages, err := s.Wiki.PageIndex(r.Context())
 	if err != nil {
 		slog.Error("failed to get page index", "error", err)
 	}
@@ -252,6 +252,7 @@ func (s *Server) handleAdminSiteSettingsSave(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	s.InvalidateSiteSettingsCache()
 	s.SessionManager.AddFlashMessage(w, r, "success", "Site settings updated successfully")
 	http.Redirect(w, r, "/-/admin/settings", http.StatusFound)
 }

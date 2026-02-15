@@ -58,9 +58,10 @@ func setupTestService(t *testing.T) (*WikiService, func()) {
 func TestWikiServiceSearch(t *testing.T) {
 	ws, cleanup := setupTestService(t)
 	defer cleanup()
+	ctx := context.Background()
 
 	t.Run("empty query returns nil", func(t *testing.T) {
-		results, err := ws.Search("")
+		results, err := ws.Search(context.Background(), "")
 		if err != nil {
 			t.Fatalf("Search returned error: %v", err)
 		}
@@ -70,7 +71,7 @@ func TestWikiServiceSearch(t *testing.T) {
 	})
 
 	t.Run("query matching multiple pages", func(t *testing.T) {
-		results, err := ws.Search("the")
+		results, err := ws.Search(context.Background(), "the")
 		if err != nil {
 			t.Fatalf("Search returned error: %v", err)
 		}
@@ -80,7 +81,7 @@ func TestWikiServiceSearch(t *testing.T) {
 	})
 
 	t.Run("query matching single page", func(t *testing.T) {
-		results, err := ws.Search("Welcome")
+		results, err := ws.Search(ctx, "Welcome")
 		if err != nil {
 			t.Fatalf("Search returned error: %v", err)
 		}
@@ -96,7 +97,7 @@ func TestWikiServiceSearch(t *testing.T) {
 	})
 
 	t.Run("case insensitive search", func(t *testing.T) {
-		results, err := ws.Search("welcome")
+		results, err := ws.Search(context.Background(), "welcome")
 		if err != nil {
 			t.Fatalf("Search returned error: %v", err)
 		}
@@ -106,7 +107,7 @@ func TestWikiServiceSearch(t *testing.T) {
 	})
 
 	t.Run("no matches returns empty slice", func(t *testing.T) {
-		results, err := ws.Search("nonexistentterm12345")
+		results, err := ws.Search(context.Background(), "nonexistentterm12345")
 		if err != nil {
 			t.Fatalf("Search returned error: %v", err)
 		}
@@ -116,7 +117,7 @@ func TestWikiServiceSearch(t *testing.T) {
 	})
 
 	t.Run("uses page header as name", func(t *testing.T) {
-		results, err := ws.Search("Welcome")
+		results, err := ws.Search(ctx, "Welcome")
 		if err != nil {
 			t.Fatalf("Search returned error: %v", err)
 		}
@@ -133,7 +134,7 @@ func TestWikiServicePageIndex(t *testing.T) {
 	ws, cleanup := setupTestService(t)
 	defer cleanup()
 
-	pages, err := ws.PageIndex()
+	pages, err := ws.PageIndex(context.Background())
 	if err != nil {
 		t.Fatalf("PageIndex returned error: %v", err)
 	}
@@ -162,7 +163,7 @@ func TestWikiServiceChangelog(t *testing.T) {
 	ws, cleanup := setupTestService(t)
 	defer cleanup()
 
-	log, err := ws.Changelog(10)
+	log, err := ws.Changelog(context.Background(),10)
 	if err != nil {
 		t.Fatalf("Changelog returned error: %v", err)
 	}
@@ -173,7 +174,7 @@ func TestWikiServiceChangelog(t *testing.T) {
 	}
 
 	t.Run("respects maxCount", func(t *testing.T) {
-		log, err := ws.Changelog(2)
+		log, err := ws.Changelog(context.Background(),2)
 		if err != nil {
 			t.Fatalf("Changelog returned error: %v", err)
 		}
@@ -188,12 +189,12 @@ func TestWikiServiceShowCommit(t *testing.T) {
 	defer cleanup()
 
 	// Get a revision from the changelog
-	log, err := ws.Changelog(1)
+	log, err := ws.Changelog(context.Background(),1)
 	if err != nil || len(log) == 0 {
 		t.Fatal("Cannot get changelog for ShowCommit test")
 	}
 
-	meta, diff, err := ws.ShowCommit(log[0].Revision)
+	meta, diff, err := ws.ShowCommit(context.Background(),log[0].Revision)
 	if err != nil {
 		t.Fatalf("ShowCommit returned error: %v", err)
 	}
@@ -210,12 +211,12 @@ func TestWikiServiceDiff(t *testing.T) {
 	ws, cleanup := setupTestService(t)
 	defer cleanup()
 
-	log, err := ws.Changelog(10)
+	log, err := ws.Changelog(context.Background(),10)
 	if err != nil || len(log) < 2 {
 		t.Fatal("Need at least 2 commits for diff test")
 	}
 
-	diff, err := ws.Diff(log[1].Revision, log[0].Revision)
+	diff, err := ws.Diff(context.Background(),log[1].Revision, log[0].Revision)
 	if err != nil {
 		t.Fatalf("Diff returned error: %v", err)
 	}
@@ -241,7 +242,7 @@ func TestFTS5Search_Basic(t *testing.T) {
 	}
 
 	// Search for a term in one page
-	results, err := ws.Search("Welcome")
+	results, err := ws.Search(ctx, "Welcome")
 	if err != nil {
 		t.Fatalf("Search returned error: %v", err)
 	}
@@ -268,7 +269,7 @@ func TestFTS5Search_NoResults(t *testing.T) {
 	}
 
 	// Search for nonexistent term
-	results, err := ws.Search("zzzznonexistent99999")
+	results, err := ws.Search(ctx, "zzzznonexistent99999")
 	if err != nil {
 		t.Fatalf("Search returned error: %v", err)
 	}
@@ -283,7 +284,7 @@ func TestFTS5Search_FallbackOnEmpty(t *testing.T) {
 
 	// FTS5 index is empty, but git storage has pages.
 	// Search should fall through to brute-force and still find results.
-	results, err := ws.Search("Welcome")
+	results, err := ws.Search(context.Background(), "Welcome")
 	if err != nil {
 		t.Fatalf("Search returned error: %v", err)
 	}
@@ -307,7 +308,7 @@ func TestFTS5_IndexAndRemove(t *testing.T) {
 	}
 
 	// Verify searchable
-	results, err := ws.Search("xylophone")
+	results, err := ws.Search(ctx, "xylophone")
 	if err != nil {
 		t.Fatalf("Search returned error: %v", err)
 	}
@@ -321,7 +322,7 @@ func TestFTS5_IndexAndRemove(t *testing.T) {
 	}
 
 	// Verify gone from FTS index (brute-force won't find it either since it's not in git)
-	results, err = ws.Search("xylophone")
+	results, err = ws.Search(ctx, "xylophone")
 	if err != nil {
 		t.Fatalf("Search returned error: %v", err)
 	}
@@ -360,7 +361,7 @@ func TestFTS5_EnsureSearchIndex(t *testing.T) {
 	}
 
 	// Verify search works via FTS5 now
-	results, err := ws.Search("Welcome")
+	results, err := ws.Search(ctx, "Welcome")
 	if err != nil {
 		t.Fatalf("Search returned error: %v", err)
 	}

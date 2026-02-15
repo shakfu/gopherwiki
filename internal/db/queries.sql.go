@@ -30,6 +30,17 @@ func (q *Queries) CountAdmins(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+const countIssueComments = `-- name: CountIssueComments :one
+SELECT COUNT(*) FROM issue_comments WHERE issue_id = ?
+`
+
+func (q *Queries) CountIssueComments(ctx context.Context, issueID int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countIssueComments, issueID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countIssuesByStatus = `-- name: CountIssuesByStatus :one
 SELECT COUNT(*) FROM issues WHERE status = ?
 `
@@ -132,6 +143,44 @@ func (q *Queries) CreateIssue(ctx context.Context, arg CreateIssueParams) (Issue
 		&i.Tags,
 		&i.CreatedByName,
 		&i.CreatedByEmail,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const createIssueComment = `-- name: CreateIssueComment :one
+
+INSERT INTO issue_comments (issue_id, content, author_name, author_email, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?) RETURNING id, issue_id, content, author_name, author_email, created_at, updated_at
+`
+
+type CreateIssueCommentParams struct {
+	IssueID     int64          `json:"issue_id"`
+	Content     string         `json:"content"`
+	AuthorName  sql.NullString `json:"author_name"`
+	AuthorEmail sql.NullString `json:"author_email"`
+	CreatedAt   sql.NullTime   `json:"created_at"`
+	UpdatedAt   sql.NullTime   `json:"updated_at"`
+}
+
+// Issue Comment queries
+func (q *Queries) CreateIssueComment(ctx context.Context, arg CreateIssueCommentParams) (IssueComment, error) {
+	row := q.db.QueryRowContext(ctx, createIssueComment,
+		arg.IssueID,
+		arg.Content,
+		arg.AuthorName,
+		arg.AuthorEmail,
+		arg.CreatedAt,
+		arg.UpdatedAt,
+	)
+	var i IssueComment
+	err := row.Scan(
+		&i.ID,
+		&i.IssueID,
+		&i.Content,
+		&i.AuthorName,
+		&i.AuthorEmail,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -242,6 +291,24 @@ func (q *Queries) DeleteIssue(ctx context.Context, id int64) error {
 	return err
 }
 
+const deleteIssueComment = `-- name: DeleteIssueComment :exec
+DELETE FROM issue_comments WHERE id = ?
+`
+
+func (q *Queries) DeleteIssueComment(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteIssueComment, id)
+	return err
+}
+
+const deleteIssueComments = `-- name: DeleteIssueComments :exec
+DELETE FROM issue_comments WHERE issue_id = ?
+`
+
+func (q *Queries) DeleteIssueComments(ctx context.Context, issueID int64) error {
+	_, err := q.db.ExecContext(ctx, deleteIssueComments, issueID)
+	return err
+}
+
 const deletePreference = `-- name: DeletePreference :exec
 DELETE FROM preferences WHERE name = ?
 `
@@ -338,6 +405,25 @@ func (q *Queries) GetIssue(ctx context.Context, id int64) (Issue, error) {
 		&i.Tags,
 		&i.CreatedByName,
 		&i.CreatedByEmail,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getIssueComment = `-- name: GetIssueComment :one
+SELECT id, issue_id, content, author_name, author_email, created_at, updated_at FROM issue_comments WHERE id = ?
+`
+
+func (q *Queries) GetIssueComment(ctx context.Context, id int64) (IssueComment, error) {
+	row := q.db.QueryRowContext(ctx, getIssueComment, id)
+	var i IssueComment
+	err := row.Scan(
+		&i.ID,
+		&i.IssueID,
+		&i.Content,
+		&i.AuthorName,
+		&i.AuthorEmail,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -454,6 +540,41 @@ func (q *Queries) ListDraftsByPagepath(ctx context.Context, pagepath sql.NullStr
 			&i.CursorLine,
 			&i.CursorCh,
 			&i.Datetime,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listIssueComments = `-- name: ListIssueComments :many
+SELECT id, issue_id, content, author_name, author_email, created_at, updated_at FROM issue_comments WHERE issue_id = ? ORDER BY created_at ASC
+`
+
+func (q *Queries) ListIssueComments(ctx context.Context, issueID int64) ([]IssueComment, error) {
+	rows, err := q.db.QueryContext(ctx, listIssueComments, issueID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []IssueComment{}
+	for rows.Next() {
+		var i IssueComment
+		if err := rows.Scan(
+			&i.ID,
+			&i.IssueID,
+			&i.Content,
+			&i.AuthorName,
+			&i.AuthorEmail,
+			&i.CreatedAt,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}

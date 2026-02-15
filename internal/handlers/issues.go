@@ -192,7 +192,7 @@ func (s *Server) handleIssueView(w http.ResponseWriter, r *http.Request) {
 	canDelete := user.Admin()
 
 	// Load comments
-	comments, err := s.DB.ListIssueComments(ctx, issue.ID)
+	comments, err := s.DB.Queries.ListIssueComments(ctx, issue.ID)
 	if err != nil {
 		slog.Warn("failed to list issue comments", "error", err)
 	}
@@ -500,7 +500,15 @@ func (s *Server) handleIssueCommentCreate(w http.ResponseWriter, r *http.Request
 		authorName = "Anonymous"
 	}
 
-	comment, err := s.DB.CreateIssueComment(ctx, id, content, authorName, authorEmail)
+	now := time.Now()
+	comment, err := s.DB.Queries.CreateIssueComment(ctx, db.CreateIssueCommentParams{
+		IssueID:     id,
+		Content:     content,
+		AuthorName:  db.NullString(authorName),
+		AuthorEmail: db.NullString(authorEmail),
+		CreatedAt:   db.NullTime(now),
+		UpdatedAt:   db.NullTime(now),
+	})
 	if err != nil {
 		s.SessionManager.AddFlashMessage(w, r, "danger", "Failed to add comment")
 		http.Redirect(w, r, fmt.Sprintf("/-/issues/%d", id), http.StatusFound)
@@ -531,7 +539,7 @@ func (s *Server) handleIssueCommentDelete(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := s.DB.DeleteIssueComment(ctx, commentId); err != nil {
+	if err := s.DB.Queries.DeleteIssueComment(ctx, commentId); err != nil {
 		s.SessionManager.AddFlashMessage(w, r, "danger", "Failed to delete comment")
 	} else {
 		s.SessionManager.AddFlashMessage(w, r, "success", "Comment deleted")

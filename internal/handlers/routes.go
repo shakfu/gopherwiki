@@ -95,6 +95,7 @@ func (s *Server) Routes() chi.Router {
 			r.Get("/search", s.handleSearch)
 			r.Post("/search", s.handleSearch)
 			r.Get("/search/partial", s.handleSearchPartial)
+			r.Get("/search/dropdown", s.handleSearchDropdown)
 			r.Get("/changelog", s.handleChangelog)
 			r.Get("/commit/{revision}", s.handleCommit)
 			r.Get("/pageindex", s.handlePageIndex)

@@ -81,6 +81,23 @@ func createAPITestIssue(t *testing.T, env *testutil.TestEnv, title, description,
 	return issue.ID
 }
 
+func createTestComment(t *testing.T, env *testutil.TestEnv, issueID int64, content, authorName, authorEmail string) db.IssueComment {
+	t.Helper()
+	now := time.Now()
+	comment, err := env.DB.Queries.CreateIssueComment(context.Background(), db.CreateIssueCommentParams{
+		IssueID:     issueID,
+		Content:     content,
+		AuthorName:  db.NullString(authorName),
+		AuthorEmail: db.NullString(authorEmail),
+		CreatedAt:   db.NullTime(now),
+		UpdatedAt:   db.NullTime(now),
+	})
+	if err != nil {
+		t.Fatalf("failed to create test comment: %v", err)
+	}
+	return comment
+}
+
 // --- Page API Tests ---
 
 func TestAPIPageList(t *testing.T) {
@@ -817,8 +834,8 @@ func TestAPIIssueCommentList(t *testing.T) {
 	issueID := createAPITestIssue(t, env, "Commented Issue", "desc", "open", "", nil)
 
 	// Create comments directly via DB
-	env.DB.CreateIssueComment(context.Background(), issueID, "First comment", "Alice", "alice@test.com")
-	env.DB.CreateIssueComment(context.Background(), issueID, "Second comment", "Bob", "bob@test.com")
+	createTestComment(t, env, issueID, "First comment", "Alice", "alice@test.com")
+	createTestComment(t, env, issueID, "Second comment", "Bob", "bob@test.com")
 
 	w := apiGet(t, env, fmt.Sprintf("/-/api/v1/issues/%d/comments", issueID), nil)
 
@@ -864,7 +881,7 @@ func TestAPIIssueCommentCreate(t *testing.T) {
 	}
 
 	// Verify in DB
-	comments, _ := env.DB.ListIssueComments(context.Background(), issueID)
+	comments, _ := env.DB.Queries.ListIssueComments(context.Background(), issueID)
 	if len(comments) != 1 {
 		t.Fatalf("expected 1 comment in DB, got %d", len(comments))
 	}
@@ -898,10 +915,7 @@ func TestAPIIssueCommentDelete_Admin(t *testing.T) {
 	env := testutil.SetupTestEnv(t)
 
 	issueID := createAPITestIssue(t, env, "Comment Delete", "desc", "open", "", nil)
-	comment, err := env.DB.CreateIssueComment(context.Background(), issueID, "Delete me", "Test", "test@test.com")
-	if err != nil {
-		t.Fatalf("failed to create comment: %v", err)
-	}
+	comment := createTestComment(t, env, issueID, "Delete me", "Test", "test@test.com")
 
 	cookies := loginAsAdmin(t, env)
 
@@ -912,7 +926,7 @@ func TestAPIIssueCommentDelete_Admin(t *testing.T) {
 	}
 
 	// Verify deleted
-	comments, _ := env.DB.ListIssueComments(context.Background(), issueID)
+	comments, _ := env.DB.Queries.ListIssueComments(context.Background(), issueID)
 	if len(comments) != 0 {
 		t.Errorf("expected 0 comments after delete, got %d", len(comments))
 	}
@@ -937,8 +951,8 @@ func TestAPIIssueDelete_CascadesComments(t *testing.T) {
 	issueID := createAPITestIssue(t, env, "Cascade Test", "desc", "open", "", nil)
 
 	// Add comments
-	env.DB.CreateIssueComment(context.Background(), issueID, "Comment 1", "A", "a@test.com")
-	env.DB.CreateIssueComment(context.Background(), issueID, "Comment 2", "B", "b@test.com")
+	createTestComment(t, env, issueID, "Comment 1", "A", "a@test.com")
+	createTestComment(t, env, issueID, "Comment 2", "B", "b@test.com")
 
 	cookies := loginAsAdmin(t, env)
 
@@ -949,7 +963,7 @@ func TestAPIIssueDelete_CascadesComments(t *testing.T) {
 	}
 
 	// Verify comments are cascade-deleted
-	comments, _ := env.DB.ListIssueComments(context.Background(), issueID)
+	comments, _ := env.DB.Queries.ListIssueComments(context.Background(), issueID)
 	if len(comments) != 0 {
 		t.Errorf("expected 0 comments after issue delete (cascade), got %d", len(comments))
 	}

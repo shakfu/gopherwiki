@@ -3,6 +3,7 @@ package middleware
 
 import (
 	"context"
+	"encoding/gob"
 	"log/slog"
 	"net/http"
 
@@ -11,6 +12,12 @@ import (
 	"github.com/sa/gopherwiki/internal/db"
 	"github.com/sa/gopherwiki/internal/models"
 )
+
+func init() {
+	// Register custom types with gob so gorilla/sessions can
+	// serialize them into cookies.
+	gob.Register(FlashMessage{})
+}
 
 // Context keys for request context.
 type contextKey string

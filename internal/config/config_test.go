@@ -194,29 +194,6 @@ func TestLoad(t *testing.T) {
 	}
 }
 
-func TestLoadFromEnv_DatabaseURI_Legacy(t *testing.T) {
-	cfg := Default()
-	t.Setenv("SQLALCHEMY_DATABASE_URI", "sqlite:///legacy.db")
-
-	cfg.LoadFromEnv()
-
-	if cfg.DatabaseURI != "sqlite:///legacy.db" {
-		t.Errorf("DatabaseURI = %q, want %q", cfg.DatabaseURI, "sqlite:///legacy.db")
-	}
-}
-
-func TestLoadFromEnv_DatabaseURI_NewOverridesLegacy(t *testing.T) {
-	cfg := Default()
-	t.Setenv("DATABASE_URI", "sqlite:///new.db")
-	t.Setenv("SQLALCHEMY_DATABASE_URI", "sqlite:///legacy.db")
-
-	cfg.LoadFromEnv()
-
-	if cfg.DatabaseURI != "sqlite:///new.db" {
-		t.Errorf("DatabaseURI = %q, want %q (new should override legacy)", cfg.DatabaseURI, "sqlite:///new.db")
-	}
-}
-
 func TestDevMode_Default(t *testing.T) {
 	cfg := Default()
 	if cfg.DevMode {

@@ -255,7 +255,7 @@ func (s *Server) handleAPIIssueComments(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	comments, err := s.DB.ListIssueComments(ctx, id)
+	comments, err := s.DB.Queries.ListIssueComments(ctx, id)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "failed to list comments")
 		return
@@ -303,13 +303,21 @@ func (s *Server) handleAPIIssueCommentCreate(w http.ResponseWriter, r *http.Requ
 		authorName = "Anonymous"
 	}
 
-	comment, err := s.DB.CreateIssueComment(ctx, id, content, authorName, authorEmail)
+	now := time.Now()
+	comment, err := s.DB.Queries.CreateIssueComment(ctx, db.CreateIssueCommentParams{
+		IssueID:     id,
+		Content:     content,
+		AuthorName:  db.NullString(authorName),
+		AuthorEmail: db.NullString(authorEmail),
+		CreatedAt:   db.NullTime(now),
+		UpdatedAt:   db.NullTime(now),
+	})
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "failed to create comment")
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, issueCommentToAPI(comment))
+	writeJSON(w, http.StatusCreated, issueCommentToAPI(&comment))
 }
 
 // handleAPIIssueCommentDelete handles DELETE /api/v1/issues/{id}/comments/{commentId} -- admin only.
@@ -323,7 +331,7 @@ func (s *Server) handleAPIIssueCommentDelete(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Verify comment exists
-	if _, err := s.DB.GetIssueComment(ctx, commentId); err != nil {
+	if _, err := s.DB.Queries.GetIssueComment(ctx, commentId); err != nil {
 		if err == sql.ErrNoRows {
 			writeJSONError(w, http.StatusNotFound, "comment not found")
 			return
@@ -332,7 +340,7 @@ func (s *Server) handleAPIIssueCommentDelete(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if err := s.DB.DeleteIssueComment(ctx, commentId); err != nil {
+	if err := s.DB.Queries.DeleteIssueComment(ctx, commentId); err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "failed to delete comment")
 		return
 	}

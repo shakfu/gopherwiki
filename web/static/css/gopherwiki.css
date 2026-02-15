@@ -1002,6 +1002,103 @@ mark {
     position: relative;
 }
 
+.search-dropdown-wrapper {
+    position: relative;
+}
+
+.search-dropdown:empty {
+    display: none;
+}
+
+.search-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    background: var(--pico-background-color, #fff);
+    border: 1px solid rgba(0, 0, 0, 0.15);
+    border-radius: 0.25rem;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    max-height: 24rem;
+    overflow-y: auto;
+    margin-top: 0.25rem;
+    min-width: 280px;
+}
+
+.search-dropdown-items {
+    display: flex;
+    flex-direction: column;
+}
+
+.search-dropdown-item {
+    display: flex;
+    flex-direction: column;
+    padding: 0.5rem 0.75rem;
+    text-decoration: none;
+    color: inherit;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.search-dropdown-item:hover {
+    background: rgba(0, 0, 0, 0.04);
+    text-decoration: none;
+    color: inherit;
+}
+
+.search-dropdown-title {
+    font-weight: 500;
+    font-size: 0.875rem;
+    line-height: 1.3;
+}
+
+.search-dropdown-path {
+    font-size: 0.75rem;
+    color: var(--pico-muted-color, #777);
+    line-height: 1.3;
+}
+
+.search-dropdown-footer {
+    display: block;
+    padding: 0.5rem 0.75rem;
+    text-align: center;
+    font-size: 0.8rem;
+    border-top: 1px solid rgba(0, 0, 0, 0.1);
+    text-decoration: none;
+}
+
+.search-dropdown-footer:hover {
+    background: rgba(0, 0, 0, 0.04);
+}
+
+.search-dropdown-empty {
+    padding: 0.75rem;
+    text-align: center;
+    font-size: 0.85rem;
+    color: var(--pico-muted-color, #777);
+}
+
+[data-theme="dark"] .search-dropdown {
+    border-color: rgba(255, 255, 255, 0.15);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="dark"] .search-dropdown-item {
+    border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+[data-theme="dark"] .search-dropdown-item:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+[data-theme="dark"] .search-dropdown-footer {
+    border-top-color: rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="dark"] .search-dropdown-footer:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
 .top-search::after {
     top: 0.3rem;
     right: 0.625rem;

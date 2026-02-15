@@ -59,9 +59,9 @@ func TestSchemaVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion failed: %v", err)
 	}
-	// Should be at the latest migration version (currently 4)
-	if version != 4 {
-		t.Errorf("SchemaVersion = %d, want 4", version)
+	// Should be at the latest migration version (currently 5)
+	if version != 5 {
+		t.Errorf("SchemaVersion = %d, want 5", version)
 	}
 }
 
@@ -78,8 +78,8 @@ func TestMigrateIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion failed: %v", err)
 	}
-	if version != 4 {
-		t.Errorf("SchemaVersion after re-migrate = %d, want 4", version)
+	if version != 5 {
+		t.Errorf("SchemaVersion after re-migrate = %d, want 5", version)
 	}
 }
 
@@ -114,19 +114,19 @@ func TestCreateUser(t *testing.T) {
 	database := openTestDB(t)
 	ctx := context.Background()
 
-	now := sql.NullTime{Time: time.Now(), Valid: true}
+	now := NullTime(time.Now())
 	params := CreateUserParams{
 		Name:           "Alice",
 		Email:          "alice@example.com",
-		PasswordHash:   sql.NullString{String: "hash123", Valid: true},
+		PasswordHash:   NullString("hash123"),
 		FirstSeen:      now,
 		LastSeen:       now,
-		IsApproved:     sql.NullBool{Bool: true, Valid: true},
-		IsAdmin:        sql.NullBool{Bool: false, Valid: true},
-		EmailConfirmed: sql.NullBool{Bool: true, Valid: true},
-		AllowRead:      sql.NullBool{Bool: true, Valid: true},
-		AllowWrite:     sql.NullBool{Bool: true, Valid: true},
-		AllowUpload:    sql.NullBool{Bool: false, Valid: true},
+		IsApproved:     NullBool(true),
+		IsAdmin:        NullBool(false),
+		EmailConfirmed: NullBool(true),
+		AllowRead:      NullBool(true),
+		AllowWrite:     NullBool(true),
+		AllowUpload:    NullBool(false),
 	}
 
 	user, err := database.Queries.CreateUser(ctx, params)
@@ -235,7 +235,7 @@ func TestUpsertPreference(t *testing.T) {
 	// Insert
 	err := database.Queries.UpsertPreference(ctx, UpsertPreferenceParams{
 		Name:  "theme",
-		Value: sql.NullString{String: "dark", Valid: true},
+		Value: NullString("dark"),
 	})
 	if err != nil {
 		t.Fatalf("UpsertPreference (insert) failed: %v", err)
@@ -252,7 +252,7 @@ func TestUpsertPreference(t *testing.T) {
 	// Update
 	err = database.Queries.UpsertPreference(ctx, UpsertPreferenceParams{
 		Name:  "theme",
-		Value: sql.NullString{String: "light", Valid: true},
+		Value: NullString("light"),
 	})
 	if err != nil {
 		t.Fatalf("UpsertPreference (update) failed: %v", err)
@@ -281,15 +281,15 @@ func TestCreateIssue(t *testing.T) {
 	database := openTestDB(t)
 	ctx := context.Background()
 
-	now := sql.NullTime{Time: time.Now(), Valid: true}
+	now := NullTime(time.Now())
 	params := CreateIssueParams{
 		Title:          "Bug report",
-		Description:    sql.NullString{String: "Something is broken", Valid: true},
+		Description:    NullString("Something is broken"),
 		Status:         "open",
-		Category:       sql.NullString{String: "bug", Valid: true},
-		Tags:           sql.NullString{String: "critical", Valid: true},
-		CreatedByName:  sql.NullString{String: "Alice", Valid: true},
-		CreatedByEmail: sql.NullString{String: "alice@example.com", Valid: true},
+		Category:       NullString("bug"),
+		Tags:           NullString("critical"),
+		CreatedByName:  NullString("Alice"),
+		CreatedByEmail: NullString("alice@example.com"),
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}

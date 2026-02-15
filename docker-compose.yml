@@ -32,4 +32,4 @@ services:
       - DISABLE_REGISTRATION=${DISABLE_REGISTRATION:-false}
       # Repository and database paths (inside container)
       - REPOSITORY=/app-data/repository
-      - SQLALCHEMY_DATABASE_URI=sqlite:///app-data/gopherwiki.db
+      - DATABASE_URI=sqlite:///app-data/gopherwiki.db

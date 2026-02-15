@@ -11,11 +11,11 @@ This project is a Go translation of [An Otter Wiki](https://github.com/redimp/ot
 - Minimalistic interface with dark mode
 - Markdown editor with syntax highlighting and table support
 - Customizable sidebar with menu and page index
+- Live search dropdown in the navbar with HTMX
 - Full changelog and page history with diff view
 - User authentication with configurable access control
 - Page attachments with image thumbnails
 - Extended Markdown: tables, footnotes, alerts, mermaid diagrams, syntax highlighting
-- Git HTTP server: clone, pull, and push wiki content
 - Issue tracker with comments and discussion threads
 - Draft autosave
 - RSS/Atom feeds
@@ -77,7 +77,7 @@ services:
 
 ## Configuration
 
-Configuration is done via environment variables:
+GopherWiki can be configured via a YAML config file, environment variables, or command-line flags. When multiple sources set the same value, the precedence is: **defaults < config file < environment variables < CLI flags**.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -86,13 +86,57 @@ Configuration is done via environment variables:
 | `SITE_URL` | http://localhost:8080 | Public URL for feeds and sitemap |
 | `HOME_PAGE` | Home | Default landing page |
 | `REPOSITORY` | ./repository | Path to Git repository |
-| `SQLALCHEMY_DATABASE_URI` | sqlite://gopherwiki.db | SQLite database path |
+| `DATABASE_URI` | sqlite://gopherwiki.db | SQLite database path |
 | `READ_ACCESS` | ANONYMOUS | Who can read: ANONYMOUS, REGISTERED, or APPROVED |
 | `WRITE_ACCESS` | REGISTERED | Who can write: ANONYMOUS, REGISTERED, or APPROVED |
 | `ATTACHMENT_ACCESS` | REGISTERED | Who can upload: ANONYMOUS, REGISTERED, or APPROVED |
 | `AUTO_APPROVAL` | true | Auto-approve new registrations |
 | `DISABLE_REGISTRATION` | false | Disable new user registration |
 | `DEV_MODE` | false | Relaxes secret key validation for local development |
+
+### Config File
+
+Pass a YAML config file with `-config` or the `CONFIG_FILE` environment variable:
+
+```bash
+gopherwiki -config /etc/gopherwiki/config.yml
+```
+
+Example `config.yml`:
+
+```yaml
+# Server
+port: 8080
+host: "0.0.0.0"
+base_url: "https://wiki.example.com"
+dev_mode: false
+
+# Storage
+repository_path: "/var/lib/gopherwiki/repo"
+database_path: "sqlite:///var/lib/gopherwiki/wiki.db"
+
+# Auth
+session_secret: "your-secret-key-at-least-16-chars"
+auth_method: ""
+registration_enabled: true
+auto_approval: true
+
+# Permissions
+read_access: "ANONYMOUS"
+write_access: "REGISTERED"
+attachment_access: "REGISTERED"
+
+# Wiki
+site_name: "My Wiki"
+landing_page: "Home"
+site_lang: "en"
+
+# Logging
+log_level: "INFO"
+log_format: "text"
+```
+
+Only the fields you want to override need to be present -- omitted fields keep their defaults. Environment variables and CLI flags still override any values set in the file.
 
 ### Generating a Secret Key
 
@@ -108,6 +152,7 @@ go run -e 'import "crypto/rand"; import "encoding/base64"; b := make([]byte, 32)
 
 | Flag | Default | Description |
 |------|---------|-------------|
+| `-config` | | Path to YAML configuration file |
 | `-host` | (all interfaces) | Host/IP to bind to |
 | `-port` | 8080 | HTTP server port |
 | `-repo` | | Path to wiki Git repository |

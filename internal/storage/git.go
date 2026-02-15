@@ -18,11 +18,20 @@ import (
 
 var errIterDone = errors.New("iteration done")
 
+// makeSignature creates a git commit signature from an Author.
+func makeSignature(author Author) *object.Signature {
+	return &object.Signature{
+		Name:  author.Name,
+		Email: author.Email,
+		When:  time.Now(),
+	}
+}
+
 // GitStorage implements Storage using a Git repository.
 type GitStorage struct {
 	path string
 	repo *git.Repository
-	mu   sync.Mutex
+	mu   sync.RWMutex
 }
 
 // NewGitStorage creates a new GitStorage for the given path.
@@ -127,6 +136,7 @@ func (g *GitStorage) Size(filename string) (int64, error) {
 }
 
 // checkReload checks if the repository needs to be reloaded.
+// Caller must hold g.mu (write lock).
 func (g *GitStorage) checkReload() {
 	reloadPath := filepath.Join(g.path, ".git", "RELOAD_GIT")
 	if _, err := os.Stat(reloadPath); err == nil {
@@ -138,6 +148,18 @@ func (g *GitStorage) checkReload() {
 			g.repo = repo
 		}
 	}
+}
+
+// rLockWithReload acquires a read lock, performing a reload first if the
+// sentinel file exists. Caller must call g.mu.RUnlock() when done.
+func (g *GitStorage) rLockWithReload() {
+	reloadPath := filepath.Join(g.path, ".git", "RELOAD_GIT")
+	if _, err := os.Stat(reloadPath); err == nil {
+		g.mu.Lock()
+		g.checkReload()
+		g.mu.Unlock()
+	}
+	g.mu.RLock()
 }
 
 // Load reads a file's content.
@@ -154,9 +176,8 @@ func (g *GitStorage) LoadBytes(filename string, revision string) ([]byte, error)
 	if err := g.validatePath(filename); err != nil {
 		return nil, err
 	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.checkReload()
+	g.rLockWithReload()
+	defer g.mu.RUnlock()
 
 	if revision != "" {
 		// Load from specific revision
@@ -247,11 +268,7 @@ func (g *GitStorage) StoreBytes(filename string, content []byte, message string,
 	}
 
 	_, err = worktree.Commit(message, &git.CommitOptions{
-		Author: &object.Signature{
-			Name:  author.Name,
-			Email: author.Email,
-			When:  time.Now(),
-		},
+		Author: makeSignature(author),
 	})
 	if err != nil {
 		return false, err
@@ -307,11 +324,7 @@ func (g *GitStorage) Delete(filename string, message string, author Author) erro
 	}
 
 	_, err = worktree.Commit(message, &git.CommitOptions{
-		Author: &object.Signature{
-			Name:  author.Name,
-			Email: author.Email,
-			When:  time.Now(),
-		},
+		Author: makeSignature(author),
 	})
 	return err
 }
@@ -363,11 +376,7 @@ func (g *GitStorage) Rename(oldFilename, newFilename, message string, author Aut
 	}
 
 	_, err = worktree.Commit(message, &git.CommitOptions{
-		Author: &object.Signature{
-			Name:  author.Name,
-			Email: author.Email,
-			When:  time.Now(),
-		},
+		Author: makeSignature(author),
 	})
 	return err
 }
@@ -377,9 +386,8 @@ func (g *GitStorage) Metadata(filename string, revision string) (*CommitMetadata
 	if err := g.validatePath(filename); err != nil {
 		return nil, err
 	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.checkReload()
+	g.rLockWithReload()
+	defer g.mu.RUnlock()
 
 	var commit *object.Commit
 
@@ -481,15 +489,13 @@ func (g *GitStorage) Log(filename string, maxCount int) ([]CommitMetadata, error
 			return nil, err
 		}
 	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
+	g.rLockWithReload()
+	defer g.mu.RUnlock()
 	return g.logLocked(filename, maxCount)
 }
 
-// logLocked performs the log operation. Caller must hold g.mu.
+// logLocked performs the log operation. Caller must hold g.mu (read or write).
 func (g *GitStorage) logLocked(filename string, maxCount int) ([]CommitMetadata, error) {
-	g.checkReload()
-
 	opts := &git.LogOptions{
 		Order: git.LogOrderCommitterTime,
 	}
@@ -535,9 +541,8 @@ func (g *GitStorage) Blame(filename string, revision string) ([]BlameLine, error
 	if err := g.validatePath(filename); err != nil {
 		return nil, err
 	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.checkReload()
+	g.rLockWithReload()
+	defer g.mu.RUnlock()
 
 	var commitHash plumbing.Hash
 	if revision == "" {
@@ -581,8 +586,8 @@ func (g *GitStorage) Blame(filename string, revision string) ([]BlameLine, error
 
 // Diff returns the diff between two revisions.
 func (g *GitStorage) Diff(revA, revB string) (string, error) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
+	g.rLockWithReload()
+	defer g.mu.RUnlock()
 	hashA, err := g.repo.ResolveRevision(plumbing.Revision(revA))
 	if err != nil {
 		return "", ErrNotFound
@@ -628,8 +633,8 @@ func (g *GitStorage) Diff(revA, revB string) (string, error) {
 
 // ShowCommit returns metadata and diff for a specific commit.
 func (g *GitStorage) ShowCommit(revision string) (*CommitMetadata, string, error) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
+	g.rLockWithReload()
+	defer g.mu.RUnlock()
 	hash, err := g.repo.ResolveRevision(plumbing.Revision(revision))
 	if err != nil {
 		return nil, "", fmt.Errorf("no commit found for ref %s", revision)
@@ -775,11 +780,7 @@ func (g *GitStorage) Revert(revision, message string, author Author) error {
 	}
 
 	_, err = worktree.Commit(message, &git.CommitOptions{
-		Author: &object.Signature{
-			Name:  author.Name,
-			Email: author.Email,
-			When:  time.Now(),
-		},
+		Author: makeSignature(author),
 	})
 
 	return err
@@ -878,11 +879,7 @@ func (g *GitStorage) Commit(filenames []string, message string, author Author) e
 	}
 
 	_, err = worktree.Commit(message, &git.CommitOptions{
-		Author: &object.Signature{
-			Name:  author.Name,
-			Email: author.Email,
-			When:  time.Now(),
-		},
+		Author: makeSignature(author),
 	})
 	return err
 }
@@ -892,8 +889,8 @@ func (g *GitStorage) GetParentRevision(filename, revision string) (string, error
 	if err := g.validatePath(filename); err != nil {
 		return "", err
 	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
+	g.rLockWithReload()
+	defer g.mu.RUnlock()
 	history, err := g.logLocked(filename, 0)
 	if err != nil {
 		return "", err
@@ -915,8 +912,8 @@ func (g *GitStorage) GetFilenameAtRevision(currentFilename, revision string) (st
 	if err := g.validatePath(currentFilename); err != nil {
 		return "", err
 	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
+	g.rLockWithReload()
+	defer g.mu.RUnlock()
 	hash, err := g.repo.ResolveRevision(plumbing.Revision(revision))
 	if err != nil {
 		return currentFilename, nil

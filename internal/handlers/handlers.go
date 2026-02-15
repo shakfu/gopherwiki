@@ -3,11 +3,13 @@ package handlers
 
 import (
 	"context"
-	"fmt"
 	"html/template"
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"strconv"
+	"sync"
+	"time"
 
 	"github.com/sa/gopherwiki/internal/auth"
 	"github.com/sa/gopherwiki/internal/config"
@@ -17,6 +19,9 @@ import (
 	"github.com/sa/gopherwiki/internal/storage"
 	"github.com/sa/gopherwiki/internal/wiki"
 )
+
+// siteSettingsCacheTTL is how long cached site settings remain valid.
+const siteSettingsCacheTTL = 60 * time.Second
 
 // Server holds all dependencies for HTTP handlers.
 type Server struct {
@@ -32,6 +37,11 @@ type Server struct {
 	Auth              *auth.Auth
 	SessionManager    *middleware.SessionManager
 	PermissionChecker *middleware.PermissionChecker
+
+	// Site settings cache
+	ssMu       sync.RWMutex
+	ssCache    *SiteSettings
+	ssCachedAt time.Time
 }
 
 // NewServer creates a new Server with the given dependencies.
@@ -65,7 +75,16 @@ type SiteSettings struct {
 }
 
 // getSiteSettings returns site settings from preferences or config.
+// Results are cached with a short TTL to avoid DB queries on every request.
 func (s *Server) getSiteSettings(ctx context.Context) SiteSettings {
+	s.ssMu.RLock()
+	if s.ssCache != nil && time.Since(s.ssCachedAt) < siteSettingsCacheTTL {
+		cached := *s.ssCache
+		s.ssMu.RUnlock()
+		return cached
+	}
+	s.ssMu.RUnlock()
+
 	settings := SiteSettings{
 		Name: s.Config.SiteName,
 		Logo: s.Config.SiteLogo,
@@ -81,7 +100,19 @@ func (s *Server) getSiteSettings(ctx context.Context) SiteSettings {
 		settings.Logo = pref.Value.String
 	}
 
+	s.ssMu.Lock()
+	s.ssCache = &settings
+	s.ssCachedAt = time.Now()
+	s.ssMu.Unlock()
+
 	return settings
+}
+
+// InvalidateSiteSettingsCache clears the cached site settings.
+func (s *Server) InvalidateSiteSettingsCache() {
+	s.ssMu.Lock()
+	s.ssCachedAt = time.Time{}
+	s.ssMu.Unlock()
 }
 
 // renderTemplate renders a template with common context.
@@ -122,7 +153,7 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name str
 
 	// Add sidebar page tree when configured
 	if s.Config.SidebarMenutreeMode != "" {
-		if tree, err := s.Wiki.PageTree(); err == nil && len(tree) > 0 {
+		if tree, err := s.Wiki.PageTree(r.Context()); err == nil && len(tree) > 0 {
 			data["sidebar_tree"] = tree
 		}
 	}
@@ -210,8 +241,6 @@ func (s *Server) getAuthor(r *http.Request) storage.Author {
 
 // parseInt64 parses a string to int64.
 func parseInt64(s string) (int64, error) {
-	var i int64
-	_, err := fmt.Sscanf(s, "%d", &i)
-	return i, err
+	return strconv.ParseInt(s, 10, 64)
 }
 

@@ -38,6 +38,16 @@ type Issue struct {
 	UpdatedAt      sql.NullTime   `json:"updated_at"`
 }
 
+type IssueComment struct {
+	ID          int64          `json:"id"`
+	IssueID     int64          `json:"issue_id"`
+	Content     string         `json:"content"`
+	AuthorName  sql.NullString `json:"author_name"`
+	AuthorEmail sql.NullString `json:"author_email"`
+	CreatedAt   sql.NullTime   `json:"created_at"`
+	UpdatedAt   sql.NullTime   `json:"updated_at"`
+}
+
 type Preference struct {
 	Name  string         `json:"name"`
 	Value sql.NullString `json:"value"`

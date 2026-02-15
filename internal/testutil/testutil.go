@@ -3,13 +3,13 @@ package testutil
 
 import (
 	"context"
-	"database/sql"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -132,20 +132,20 @@ func CreateTestUser(t *testing.T, database *db.Database, opts UserOpts) *models.
 		opts.Password = "testpassword123"
 	}
 
-	now := sql.NullTime{Time: sql.NullTime{}.Time, Valid: true}
+	now := db.NullTime(time.Time{})
 
 	params := db.CreateUserParams{
 		Name:           opts.Name,
 		Email:          opts.Email,
-		PasswordHash:   sql.NullString{String: opts.Password, Valid: true},
+		PasswordHash:   db.NullString(opts.Password),
 		FirstSeen:      now,
 		LastSeen:       now,
-		IsApproved:     sql.NullBool{Bool: opts.Approved, Valid: true},
-		IsAdmin:        sql.NullBool{Bool: opts.Admin, Valid: true},
-		EmailConfirmed: sql.NullBool{Bool: true, Valid: true},
-		AllowRead:      sql.NullBool{Bool: opts.AllowRead, Valid: true},
-		AllowWrite:     sql.NullBool{Bool: opts.AllowWrite, Valid: true},
-		AllowUpload:    sql.NullBool{Bool: opts.AllowUpload, Valid: true},
+		IsApproved:     db.NullBool(opts.Approved),
+		IsAdmin:        db.NullBool(opts.Admin),
+		EmailConfirmed: db.NullBool(true),
+		AllowRead:      db.NullBool(opts.AllowRead),
+		AllowWrite:     db.NullBool(opts.AllowWrite),
+		AllowUpload:    db.NullBool(opts.AllowUpload),
 	}
 
 	dbUser, err := database.Queries.CreateUser(context.Background(), params)

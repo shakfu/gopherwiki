@@ -4,7 +4,6 @@ package auth
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/base64"
 	"errors"
 	"strings"
@@ -209,7 +208,7 @@ func (a *Auth) UpdatePassword(ctx context.Context, userID int64, newPassword str
 // UpdateUserLastSeen updates the user's last seen timestamp.
 func (a *Auth) UpdateUserLastSeen(ctx context.Context, userID int64) error {
 	return a.queries.UpdateUserLastSeen(ctx, db.UpdateUserLastSeenParams{
-		LastSeen: sql.NullTime{Time: time.Now(), Valid: true},
+		LastSeen: db.NullTime(time.Now()),
 		ID:       userID,
 	})
 }

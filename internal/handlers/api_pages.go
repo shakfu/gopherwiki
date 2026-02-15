@@ -1,16 +1,16 @@
 package handlers
 
 import (
-	"log/slog"
 	"net/http"
 	"strings"
 
+	"github.com/sa/gopherwiki/internal/storage"
 	"github.com/sa/gopherwiki/internal/wiki"
 )
 
 // handleAPIPageList handles GET /api/v1/pages -- lists all pages.
 func (s *Server) handleAPIPageList(w http.ResponseWriter, r *http.Request) {
-	entries, err := s.Wiki.PageIndex()
+	entries, err := s.Wiki.PageIndex(r.Context())
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "failed to list pages")
 		return
@@ -101,38 +101,17 @@ func (s *Server) handleAPIPageSave(w http.ResponseWriter, r *http.Request, pageP
 		return
 	}
 
-	page, err := wiki.NewPage(s.Storage, s.Config, pagePath, "")
-	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "failed to load page")
-		return
-	}
-
-	// Optimistic locking
-	if input.Revision != "" && page.Exists && page.Metadata != nil && page.Metadata.Revision != input.Revision {
-		writeJSONError(w, http.StatusConflict, "edit conflict: page was modified since your revision")
-		return
-	}
-
 	author := s.getAuthor(r)
-	isNew := !page.Exists
 
-	message := input.Message
-	if message == "" {
-		if isNew {
-			message = "Created " + page.Pagename
-		} else {
-			message = "Updated " + page.Pagename
-		}
-	}
-
-	_, err = page.Save(input.Content, message, author)
+	result, err := s.Wiki.SavePage(r.Context(), pagePath, input.Content, input.Message, input.Revision, author)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "failed to save page")
 		return
 	}
 
-	if err := s.Wiki.IndexPage(r.Context(), page.Pagepath, input.Content); err != nil {
-		slog.Warn("failed to index page", "path", page.Pagepath, "error", err)
+	if result.Conflict {
+		writeJSONError(w, http.StatusConflict, "edit conflict: page was modified since your revision")
+		return
 	}
 
 	// Reload page to get updated metadata
@@ -143,7 +122,7 @@ func (s *Server) handleAPIPageSave(w http.ResponseWriter, r *http.Request, pageP
 	}
 
 	status := http.StatusOK
-	if isNew {
+	if result.IsNew {
 		status = http.StatusCreated
 	}
 	writeJSON(w, status, pageToAPI(updated))
@@ -151,27 +130,15 @@ func (s *Server) handleAPIPageSave(w http.ResponseWriter, r *http.Request, pageP
 
 // handleAPIPageDelete handles DELETE /api/v1/pages/{path} -- delete page.
 func (s *Server) handleAPIPageDelete(w http.ResponseWriter, r *http.Request, pagePath string) {
-	page, err := wiki.NewPage(s.Storage, s.Config, pagePath, "")
-	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "failed to load page")
-		return
-	}
-
-	if !page.Exists {
-		writeJSONError(w, http.StatusNotFound, "page not found")
-		return
-	}
-
 	author := s.getAuthor(r)
-	message := page.Pagename + " deleted."
 
-	if err := page.Delete(message, author, true); err != nil {
+	if err := s.Wiki.DeletePage(r.Context(), pagePath, "", author); err != nil {
+		if err == storage.ErrNotFound {
+			writeJSONError(w, http.StatusNotFound, "page not found")
+			return
+		}
 		writeJSONError(w, http.StatusInternalServerError, "failed to delete page")
 		return
-	}
-
-	if err := s.Wiki.RemovePageFromIndex(r.Context(), page.Pagepath); err != nil {
-		slog.Warn("failed to remove page from index", "path", page.Pagepath, "error", err)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]bool{"deleted": true})
@@ -221,7 +188,7 @@ func (s *Server) handleAPISearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	results, err := s.Wiki.Search(query)
+	results, err := s.Wiki.Search(r.Context(), query)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "search failed")
 		return
@@ -236,7 +203,7 @@ func (s *Server) handleAPISearch(w http.ResponseWriter, r *http.Request) {
 
 // handleAPIChangelog handles GET /api/v1/changelog.
 func (s *Server) handleAPIChangelog(w http.ResponseWriter, r *http.Request) {
-	changelog, err := s.Wiki.Changelog(100)
+	changelog, err := s.Wiki.Changelog(r.Context(), 100)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "failed to get changelog")
 		return

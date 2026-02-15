@@ -34,10 +34,15 @@
         {{if .templateType}}{{if eq .templateType "editor"}}{{template "editor_navbar_editor" .}}{{end}}{{end}}
         <div class="navbar-actions">
             {{if not (and .templateType (eq .templateType "editor"))}}
-            <form action="/-/search" method="get" class="relative">
+            <form action="/-/search" method="get" class="search-dropdown-wrapper">
             <span class="top-search">
-            <input id="search-query" name="q" type="text" placeholder="Search" style="padding-right: 2.5rem;">
+            <input id="search-query" name="q" type="text" placeholder="Search" autocomplete="off" style="padding-right: 2.5rem;"
+                hx-get="/-/search/dropdown"
+                hx-trigger="keyup changed delay:300ms"
+                hx-target="#search-dropdown"
+                hx-include="this">
             </span>
+            <div id="search-dropdown" class="search-dropdown"></div>
             </form>
             {{end}}
             <details class="dropdown">

@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"context"
-	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -23,11 +22,11 @@ func makeUser(opts struct {
 }) *models.User {
 	return models.NewUser(&db.User{
 		ID:          opts.ID,
-		IsApproved:  sql.NullBool{Bool: opts.Approved, Valid: true},
-		IsAdmin:     sql.NullBool{Bool: opts.Admin, Valid: true},
-		AllowRead:   sql.NullBool{Bool: opts.AllowRead, Valid: true},
-		AllowWrite:  sql.NullBool{Bool: opts.AllowWrite, Valid: true},
-		AllowUpload: sql.NullBool{Bool: opts.AllowUpload, Valid: true},
+		IsApproved:  db.NullBool(opts.Approved),
+		IsAdmin:     db.NullBool(opts.Admin),
+		AllowRead:   db.NullBool(opts.AllowRead),
+		AllowWrite:  db.NullBool(opts.AllowWrite),
+		AllowUpload: db.NullBool(opts.AllowUpload),
 	})
 }
 

@@ -1,3 +1,21 @@
+{{define "search_dropdown"}}
+{{if .query}}
+{{if .results}}
+<div class="search-dropdown-items">
+    {{range .results}}
+    <a href="/{{.Pagepath}}" class="search-dropdown-item">
+        <span class="search-dropdown-title">{{.Pagename}}</span>
+        <span class="search-dropdown-path">/{{.Pagepath}}</span>
+    </a>
+    {{end}}
+</div>
+<a href="/-/search?q={{.query}}" class="search-dropdown-footer">View all results</a>
+{{else}}
+<div class="search-dropdown-empty">No results for "{{.query}}"</div>
+{{end}}
+{{end}}
+{{end}}
+
 {{define "search_results"}}
 {{if .query}}
 <h2>Results for "{{.query}}"</h2>

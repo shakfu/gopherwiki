@@ -10,6 +10,10 @@ import (
 
 // Config holds all configuration settings for the wiki.
 type Config struct {
+	// Server settings
+	Host string
+	Port int
+
 	// Core settings
 	Debug      bool
 	Testing    bool
@@ -86,9 +90,11 @@ type Config struct {
 	IssueCategories string // Comma-separated list of available issue categories (mutually exclusive)
 }
 
-// Default returns a Config with default values matching the Python implementation.
+// Default returns a Config with default values.
 func Default() *Config {
 	return &Config{
+		Host:                   "",
+		Port:                   8080,
 		Debug:                  false,
 		Testing:                false,
 		LogLevel:               "INFO",
@@ -189,6 +195,10 @@ func (c *Config) LoadFromEnv() {
 		return i
 	}
 
+	// Server settings
+	c.Host = getEnv("HOST", c.Host)
+	c.Port = getEnvInt("PORT", c.Port)
+
 	// Core settings
 	c.Debug = getEnvBool("DEBUG", c.Debug)
 	c.Testing = getEnvBool("TESTING", c.Testing)
@@ -222,12 +232,8 @@ func (c *Config) LoadFromEnv() {
 	c.NotifyAdminsOnRegister = getEnvBool("NOTIFY_ADMINS_ON_REGISTER", c.NotifyAdminsOnRegister)
 	c.NotifyUserOnApproval = getEnvBool("NOTIFY_USER_ON_APPROVAL", c.NotifyUserOnApproval)
 
-	// Database - check new name first, fall back to legacy name
-	if v := os.Getenv("DATABASE_URI"); v != "" {
-		c.DatabaseURI = v
-	} else {
-		c.DatabaseURI = getEnv("SQLALCHEMY_DATABASE_URI", c.DatabaseURI)
-	}
+	// Database
+	c.DatabaseURI = getEnv("DATABASE_URI", c.DatabaseURI)
 
 	// Mail settings
 	c.MailDefaultSender = getEnv("MAIL_DEFAULT_SENDER", c.MailDefaultSender)

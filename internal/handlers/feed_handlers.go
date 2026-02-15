@@ -10,7 +10,7 @@ import (
 
 // handleFeed handles the RSS feed.
 func (s *Server) handleFeed(w http.ResponseWriter, r *http.Request) {
-	changelog, err := s.Wiki.Changelog(20)
+	changelog, err := s.Wiki.Changelog(r.Context(), 20)
 	if err != nil {
 		slog.Warn("failed to get changelog for feed", "error", err)
 	}
@@ -40,7 +40,7 @@ func (s *Server) handleFeed(w http.ResponseWriter, r *http.Request) {
 
 // handleAtomFeed handles the Atom feed.
 func (s *Server) handleAtomFeed(w http.ResponseWriter, r *http.Request) {
-	changelog, err := s.Wiki.Changelog(20)
+	changelog, err := s.Wiki.Changelog(r.Context(), 20)
 	if err != nil {
 		slog.Warn("failed to get changelog for feed", "error", err)
 	}
@@ -83,7 +83,7 @@ Sitemap: %s/-/sitemap.xml
 
 // handleSitemap handles the sitemap.xml file.
 func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
-	pages, err := s.Wiki.PageIndex()
+	pages, err := s.Wiki.PageIndex(r.Context())
 	if err != nil {
 		slog.Warn("failed to get page index for sitemap", "error", err)
 	}

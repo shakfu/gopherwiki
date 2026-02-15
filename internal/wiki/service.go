@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/sa/gopherwiki/internal/config"
 	"github.com/sa/gopherwiki/internal/db"
@@ -36,11 +38,19 @@ type PageTreeNode struct {
 	IsPage   bool
 }
 
+// pageTreeCacheTTL is how long cached PageTree results remain valid.
+const pageTreeCacheTTL = 30 * time.Second
+
 // WikiService provides higher-level wiki operations on top of Storage.
 type WikiService struct {
 	store  storage.Storage
 	config *config.Config
 	db     *db.Database
+
+	// pageTreeCache caches the page tree to avoid full repo scans on every request.
+	ptMu      sync.RWMutex
+	ptCache   []*PageTreeNode
+	ptCachedAt time.Time
 }
 
 // NewWikiService creates a new WikiService.
@@ -48,15 +58,22 @@ func NewWikiService(store storage.Storage, cfg *config.Config, database *db.Data
 	return &WikiService{store: store, config: cfg, db: database}
 }
 
+// InvalidatePageTreeCache clears the cached page tree, forcing a rebuild on next access.
+func (ws *WikiService) InvalidatePageTreeCache() {
+	ws.ptMu.Lock()
+	ws.ptCachedAt = time.Time{}
+	ws.ptMu.Unlock()
+}
+
 // Search searches all markdown pages for the given query string.
 // It tries FTS5 first, falling back to brute-force regex on error.
-func (ws *WikiService) Search(query string) ([]SearchResult, error) {
+func (ws *WikiService) Search(ctx context.Context, query string) ([]SearchResult, error) {
 	if query == "" {
 		return nil, nil
 	}
 
 	if ws.db != nil {
-		ftsResults, err := ws.db.SearchPages(context.Background(), query, 100)
+		ftsResults, err := ws.db.SearchPages(ctx, query, 100)
 		if err == nil && len(ftsResults) > 0 {
 			var results []SearchResult
 			for _, r := range ftsResults {
@@ -81,6 +98,9 @@ func (ws *WikiService) Search(query string) ([]SearchResult, error) {
 
 	return ws.searchBruteForce(query)
 }
+
+// maxSearchResults is the maximum number of search results returned.
+const maxSearchResults = 100
 
 // searchBruteForce performs an O(n) scan of all pages for the query.
 func (ws *WikiService) searchBruteForce(query string) ([]SearchResult, error) {
@@ -119,6 +139,10 @@ func (ws *WikiService) searchBruteForce(query string) ([]SearchResult, error) {
 			Pagepath:   pagepath,
 			MatchCount: len(matches),
 		})
+
+		if len(results) >= maxSearchResults {
+			break
+		}
 	}
 
 	return results, nil
@@ -218,12 +242,12 @@ func (ws *WikiService) EnsureSearchIndex(ctx context.Context) error {
 }
 
 // Changelog returns recent commit history for the entire repository.
-func (ws *WikiService) Changelog(maxCount int) ([]storage.CommitMetadata, error) {
+func (ws *WikiService) Changelog(ctx context.Context, maxCount int) ([]storage.CommitMetadata, error) {
 	return ws.store.Log("", maxCount)
 }
 
 // PageIndex lists all markdown pages in the repository.
-func (ws *WikiService) PageIndex() ([]PageIndexEntry, error) {
+func (ws *WikiService) PageIndex(ctx context.Context) ([]PageIndexEntry, error) {
 	files, _, err := ws.store.List("", nil, nil)
 	if err != nil {
 		return nil, err
@@ -245,8 +269,32 @@ func (ws *WikiService) PageIndex() ([]PageIndexEntry, error) {
 }
 
 // PageTree builds a hierarchical tree of all pages for sidebar navigation.
-func (ws *WikiService) PageTree() ([]*PageTreeNode, error) {
-	entries, err := ws.PageIndex()
+// Results are cached with a short TTL to avoid scanning the repo on every request.
+func (ws *WikiService) PageTree(ctx context.Context) ([]*PageTreeNode, error) {
+	ws.ptMu.RLock()
+	if ws.ptCache != nil && time.Since(ws.ptCachedAt) < pageTreeCacheTTL {
+		cached := ws.ptCache
+		ws.ptMu.RUnlock()
+		return cached, nil
+	}
+	ws.ptMu.RUnlock()
+
+	tree, err := ws.buildPageTree(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	ws.ptMu.Lock()
+	ws.ptCache = tree
+	ws.ptCachedAt = time.Now()
+	ws.ptMu.Unlock()
+
+	return tree, nil
+}
+
+// buildPageTree constructs the page tree from scratch.
+func (ws *WikiService) buildPageTree(ctx context.Context) ([]*PageTreeNode, error) {
+	entries, err := ws.PageIndex(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -299,16 +347,92 @@ func (ws *WikiService) PageTree() ([]*PageTreeNode, error) {
 }
 
 // ShowCommit returns metadata and diff for a specific commit.
-func (ws *WikiService) ShowCommit(revision string) (*storage.CommitMetadata, string, error) {
+func (ws *WikiService) ShowCommit(ctx context.Context, revision string) (*storage.CommitMetadata, string, error) {
 	return ws.store.ShowCommit(revision)
 }
 
 // Revert reverts a commit.
-func (ws *WikiService) Revert(revision, message string, author storage.Author) error {
+func (ws *WikiService) Revert(ctx context.Context, revision, message string, author storage.Author) error {
 	return ws.store.Revert(revision, message, author)
 }
 
+// SavePageResult holds the outcome of a SavePage operation.
+type SavePageResult struct {
+	Page     *Page
+	Changed  bool
+	IsNew    bool
+	Conflict bool
+}
+
+// SavePage saves a wiki page with conflict detection and search indexing.
+// If baseRevision is non-empty and doesn't match the current HEAD revision,
+// a conflict is returned without saving.
+func (ws *WikiService) SavePage(ctx context.Context, pagepath, content, message, baseRevision string, author storage.Author) (*SavePageResult, error) {
+	page, err := NewPage(ws.store, ws.config, pagepath, "")
+	if err != nil {
+		return nil, err
+	}
+
+	// Optimistic locking: reject saves where the base revision no longer matches HEAD
+	if baseRevision != "" && page.Exists && page.Metadata != nil && page.Metadata.Revision != baseRevision {
+		return &SavePageResult{Page: page, Conflict: true}, nil
+	}
+
+	isNew := !page.Exists
+
+	if message == "" {
+		if isNew {
+			message = "Created " + page.Pagename
+		} else {
+			message = "Updated " + page.Pagename
+		}
+	}
+
+	changed, err := page.Save(content, message, author)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := ws.IndexPage(ctx, page.Pagepath, content); err != nil {
+		slog.Warn("failed to index page", "path", page.Pagepath, "error", err)
+	}
+
+	if changed {
+		ws.InvalidatePageTreeCache()
+	}
+
+	return &SavePageResult{Page: page, Changed: changed, IsNew: isNew}, nil
+}
+
+// DeletePage deletes a wiki page (and its attachments) and removes it from the search index.
+func (ws *WikiService) DeletePage(ctx context.Context, pagepath, message string, author storage.Author) error {
+	page, err := NewPage(ws.store, ws.config, pagepath, "")
+	if err != nil {
+		return err
+	}
+
+	if !page.Exists {
+		return storage.ErrNotFound
+	}
+
+	if message == "" {
+		message = page.Pagename + " deleted."
+	}
+
+	if err := page.Delete(message, author, true); err != nil {
+		return err
+	}
+
+	if err := ws.RemovePageFromIndex(ctx, page.Pagepath); err != nil {
+		slog.Warn("failed to remove page from index", "path", page.Pagepath, "error", err)
+	}
+
+	ws.InvalidatePageTreeCache()
+
+	return nil
+}
+
 // Diff returns the diff between two revisions.
-func (ws *WikiService) Diff(revA, revB string) (string, error) {
+func (ws *WikiService) Diff(ctx context.Context, revA, revB string) (string, error) {
 	return ws.store.Diff(revA, revB)
 }

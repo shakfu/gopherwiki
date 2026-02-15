@@ -148,3 +148,24 @@ SELECT COUNT(*) FROM issues WHERE status = ?;
 
 -- name: ListDistinctCategories :many
 SELECT DISTINCT category FROM issues WHERE category IS NOT NULL AND category != '' ORDER BY category;
+
+-- Issue Comment queries
+
+-- name: CreateIssueComment :one
+INSERT INTO issue_comments (issue_id, content, author_name, author_email, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?) RETURNING *;
+
+-- name: ListIssueComments :many
+SELECT * FROM issue_comments WHERE issue_id = ? ORDER BY created_at ASC;
+
+-- name: GetIssueComment :one
+SELECT * FROM issue_comments WHERE id = ?;
+
+-- name: DeleteIssueComment :exec
+DELETE FROM issue_comments WHERE id = ?;
+
+-- name: DeleteIssueComments :exec
+DELETE FROM issue_comments WHERE issue_id = ?;
+
+-- name: CountIssueComments :one
+SELECT COUNT(*) FROM issue_comments WHERE issue_id = ?;

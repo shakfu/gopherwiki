@@ -1,5 +1,5 @@
-# test repo
-test-repo/
+# Build artifacts
+build/
 
 # Binaries
 gopherwiki
@@ -47,3 +47,9 @@ web/editor/node_modules/
 
 # Logs
 *.log
+
+# agents
+.claude
+CLAUDE.md
+AGENTs.md
+GEMINI.md
