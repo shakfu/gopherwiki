@@ -5,24 +5,81 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/sa/gopherwiki/internal/db"
 	"github.com/sa/gopherwiki/internal/storage"
+	"github.com/sa/gopherwiki/internal/util"
 	"github.com/sa/gopherwiki/internal/wiki"
 )
 
 // --- Response envelope ---
 
 type apiResponse struct {
-	Data  interface{} `json:"data,omitempty"`
-	Error string      `json:"error,omitempty"`
+	Data       interface{}    `json:"data,omitempty"`
+	Error      string         `json:"error,omitempty"`
+	Pagination *apiPagination `json:"pagination,omitempty"`
+}
+
+// apiPagination describes the window returned by a list endpoint.
+type apiPagination struct {
+	Total   int  `json:"total"`
+	Limit   int  `json:"limit"`
+	Offset  int  `json:"offset"`
+	HasMore bool `json:"has_more"`
+}
+
+// Pagination defaults and bounds for list endpoints.
+const (
+	defaultAPILimit  = 50
+	maxAPILimit      = 200
+	maxChangelogScan = 1000 // changelog pagination is within the most recent N commits
+)
+
+// paginationParams reads limit/offset query parameters with sane defaults/caps.
+func paginationParams(r *http.Request) (limit, offset int) {
+	limit = defaultAPILimit
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if limit > maxAPILimit {
+		limit = maxAPILimit
+	}
+	if v := r.URL.Query().Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			offset = n
+		}
+	}
+	return limit, offset
+}
+
+// paginate returns the [offset, offset+limit) window of items plus metadata.
+func paginate[T any](items []T, limit, offset int) ([]T, apiPagination) {
+	total := len(items)
+	if offset > total {
+		offset = total
+	}
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+	return items[offset:end], apiPagination{Total: total, Limit: limit, Offset: offset, HasMore: end < total}
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(apiResponse{Data: data})
+}
+
+// writeJSONPaginated writes a list response with pagination metadata.
+func writeJSONPaginated(w http.ResponseWriter, status int, data interface{}, p apiPagination) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(apiResponse{Data: data, Pagination: &p})
 }
 
 func writeJSONError(w http.ResponseWriter, status int, message string) {
@@ -180,7 +237,7 @@ func issueToAPI(issue db.Issue) APIIssue {
 		Description:    issue.Description.String,
 		Status:         issue.Status,
 		Category:       issue.Category.String,
-		Tags:           parseTags(issue.Tags.String),
+		Tags:           util.ParseTags(issue.Tags.String),
 		CreatedByName:  issue.CreatedByName.String,
 		CreatedByEmail: issue.CreatedByEmail.String,
 		CreatedAt:      nullTimeToString(issue.CreatedAt),

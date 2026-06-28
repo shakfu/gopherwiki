@@ -30,6 +30,20 @@ func TestOpen_InMemory(t *testing.T) {
 	database.Close()
 }
 
+func TestOpen_BoundsConnectionPool(t *testing.T) {
+	database, err := Open("sqlite:///:memory:")
+	if err != nil {
+		t.Fatalf("Open() failed: %v", err)
+	}
+	defer database.Close()
+
+	// A single connection is required for in-memory correctness (otherwise each
+	// pooled connection is a separate empty database) and serializes writes.
+	if max := database.Conn().Stats().MaxOpenConnections; max != 1 {
+		t.Errorf("MaxOpenConnections = %d, want 1", max)
+	}
+}
+
 func TestOpen_InvalidPath(t *testing.T) {
 	_, err := Open("sqlite:///nonexistent/deeply/nested/path/db.sqlite")
 	if err == nil {

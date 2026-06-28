@@ -25,6 +25,27 @@ jobs:
       - name: Build
         run: go build -tags fts5 -ldflags="-s -w" -o /dev/null ./cmd/gopherwiki
 
+  editor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install editor dependencies
+        run: bun install --frozen-lockfile
+        working-directory: web/editor
+
+      - name: Build editor bundle
+        run: make build-editor
+
+      - name: Verify committed bundle is up to date
+        run: |
+          if ! git diff --exit-code -- web/static/js/editor.bundle.js; then
+            echo "::error::web/static/js/editor.bundle.js is stale. Run 'make build-editor' and commit the result."
+            exit 1
+          fi
+
   docker:
     needs: test
     runs-on: ubuntu-latest

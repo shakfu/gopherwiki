@@ -22,6 +22,31 @@ func Empty(s string) bool {
 	return strings.TrimSpace(s) == ""
 }
 
+// ParseTags splits a comma-separated tag string into a trimmed, non-empty slice.
+func ParseTags(tags string) []string {
+	if tags == "" {
+		return nil
+	}
+	parts := strings.Split(tags, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
+}
+
+// ContainsTag reports whether a comma-separated tag string contains a tag.
+func ContainsTag(tags, tag string) bool {
+	for _, t := range ParseTags(tags) {
+		if t == tag {
+			return true
+		}
+	}
+	return false
+}
+
 // Slugify converts a string to a URL-friendly slug.
 func Slugify(s string, keepSlashes bool) string {
 	// Convert to lowercase

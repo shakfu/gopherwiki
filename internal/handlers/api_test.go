@@ -394,10 +394,46 @@ func TestAPIPageNestedPath(t *testing.T) {
 
 // --- Search API Tests ---
 
+func TestAPIIssueList_Pagination(t *testing.T) {
+	env := testutil.SetupTestEnv(t)
+	for i := 0; i < 5; i++ {
+		createAPITestIssue(t, env, "issue", "", "open", "", nil)
+	}
+
+	w := apiGet(t, env, "/-/api/v1/issues?limit=2&offset=1", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	resp := parseAPIResponse(t, w)
+
+	data, ok := resp["data"].([]interface{})
+	if !ok || len(data) != 2 {
+		t.Fatalf("data length = %d, want 2", len(data))
+	}
+
+	pg, ok := resp["pagination"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected pagination block, got %T", resp["pagination"])
+	}
+	if pg["total"].(float64) != 5 {
+		t.Errorf("total = %v, want 5", pg["total"])
+	}
+	if pg["limit"].(float64) != 2 || pg["offset"].(float64) != 1 {
+		t.Errorf("limit/offset = %v/%v, want 2/1", pg["limit"], pg["offset"])
+	}
+	if pg["has_more"].(bool) != true {
+		t.Error("has_more = false, want true (offset 1 + limit 2 < 5)")
+	}
+}
+
 func TestAPISearch(t *testing.T) {
 	env := testutil.SetupTestEnv(t)
 
 	env.Store.Store("findme.md", "# Find Me\n\nThis contains the keyword apitarget.", "init", storage.Author{Name: "test", Email: "test@test.com"})
+	// Build the search index (store.Store bypasses SavePage's indexing).
+	if err := env.Server.Wiki.EnsureSearchIndex(context.Background()); err != nil {
+		t.Fatalf("EnsureSearchIndex failed: %v", err)
+	}
 
 	w := apiGet(t, env, "/-/api/v1/search?q=apitarget", nil)
 

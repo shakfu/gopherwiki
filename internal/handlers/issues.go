@@ -1,46 +1,37 @@
 package handlers
 
 import (
-	"context"
-	"database/sql"
+	"errors"
 	"fmt"
 	"html/template"
 	"log/slog"
 	"net/http"
-	"strings"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/sa/gopherwiki/internal/db"
+	"github.com/sa/gopherwiki/internal/issues"
 	"github.com/sa/gopherwiki/internal/middleware"
+	"github.com/sa/gopherwiki/internal/util"
 )
 
-const issueTagsPreferenceKey = "issue_tags"
-const issueCategoriesPreferenceKey = "issue_categories"
-
-// getAvailableTags returns the configured issue tags from preferences or config.
-func (s *Server) getAvailableTags(ctx context.Context) []string {
-	// First try to get from preferences (allows runtime customization)
-	pref, err := s.DB.Queries.GetPreference(ctx, issueTagsPreferenceKey)
-	if err == nil && pref.Value.Valid && pref.Value.String != "" {
-		return parseTags(pref.Value.String)
-	}
-
-	// Fall back to config
-	return parseTags(s.Config.IssueTags)
+// issueAuthor builds an issues.Author from the request's user.
+func (s *Server) issueAuthor(r *http.Request) issues.Author {
+	user := middleware.GetUser(r)
+	return issues.Author{Name: user.GetName(), Email: user.GetEmail()}
 }
 
-// getAvailableCategories returns the configured issue categories from preferences or config.
-func (s *Server) getAvailableCategories(ctx context.Context) []string {
-	// First try to get from preferences (allows runtime customization)
-	pref, err := s.DB.Queries.GetPreference(ctx, issueCategoriesPreferenceKey)
-	if err == nil && pref.Value.Valid && pref.Value.String != "" {
-		return parseTags(pref.Value.String)
+// renderIssueError maps a non-validation issue-service error to an HTML page.
+func (s *Server) renderIssueError(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, issues.ErrNotFound):
+		s.renderError(w, r, http.StatusNotFound, "Issue not found")
+	case errors.Is(err, issues.ErrCommentNotFound):
+		s.renderError(w, r, http.StatusNotFound, "Comment not found")
+	default:
+		slog.Error("issue operation failed", "error", err)
+		s.renderError(w, r, http.StatusInternalServerError, "Issue operation failed")
 	}
-
-	// Fall back to config
-	return parseTags(s.Config.IssueCategories)
 }
 
 // issuesByCategory groups issues by their category for display.
@@ -57,58 +48,26 @@ func (s *Server) handleIssueList(w http.ResponseWriter, r *http.Request) {
 	tagFilter := r.URL.Query().Get("tag")
 	categoryFilter := r.URL.Query().Get("category")
 
-	var issues []db.Issue
-	var err error
-
-	if statusFilter != "" && (statusFilter == "open" || statusFilter == "closed") {
-		issues, err = s.DB.Queries.ListIssuesByStatus(ctx, statusFilter)
-	} else {
-		issues, err = s.DB.Queries.ListIssues(ctx)
-	}
-
+	issueList, err := s.Issues.List(ctx, issues.Filter{
+		Status:   statusFilter,
+		Category: categoryFilter,
+		Tag:      tagFilter,
+	})
 	if err != nil {
 		s.renderError(w, r, http.StatusInternalServerError, "Failed to list issues")
 		return
 	}
 
-	// Filter by category if specified
-	if categoryFilter != "" {
-		var filtered []db.Issue
-		for _, issue := range issues {
-			if issue.Category.Valid && issue.Category.String == categoryFilter {
-				filtered = append(filtered, issue)
-			}
-		}
-		issues = filtered
-	}
-
-	// Filter by tag if specified
-	if tagFilter != "" {
-		var filtered []db.Issue
-		for _, issue := range issues {
-			if issue.Tags.Valid && containsTag(issue.Tags.String, tagFilter) {
-				filtered = append(filtered, issue)
-			}
-		}
-		issues = filtered
-	}
-
-	// Get counts
-	openCount, err := s.DB.Queries.CountIssuesByStatus(ctx, "open")
+	openCount, closedCount, err := s.Issues.Counts(ctx)
 	if err != nil {
-		slog.Warn("failed to count open issues", "error", err)
-	}
-	closedCount, err := s.DB.Queries.CountIssuesByStatus(ctx, "closed")
-	if err != nil {
-		slog.Warn("failed to count closed issues", "error", err)
+		slog.Warn("failed to count issues", "error", err)
 	}
 
-	// Group issues by category
+	// Group issues by category for display.
 	categoryMap := make(map[string][]map[string]interface{})
-	categoryOrder := []string{}
+	var categoryOrder []string
 
-	for _, issue := range issues {
-		tags := parseTags(issue.Tags.String)
+	for _, issue := range issueList {
 		category := ""
 		if issue.Category.Valid {
 			category = issue.Category.String
@@ -119,7 +78,7 @@ func (s *Server) handleIssueList(w http.ResponseWriter, r *http.Request) {
 			"title":      issue.Title,
 			"status":     issue.Status,
 			"category":   category,
-			"tags":       tags,
+			"tags":       util.ParseTags(issue.Tags.String),
 			"created_by": issue.CreatedByName.String,
 			"created_at": issue.CreatedAt.Time,
 			"updated_at": issue.UpdatedAt.Time,
@@ -131,19 +90,11 @@ func (s *Server) handleIssueList(w http.ResponseWriter, r *http.Request) {
 		categoryMap[category] = append(categoryMap[category], issueData)
 	}
 
-	// Build grouped list
 	var groupedIssues []issuesByCategory
-	for _, cat := range categoryOrder {
-		groupedIssues = append(groupedIssues, issuesByCategory{
-			Category: cat,
-			Issues:   categoryMap[cat],
-		})
-	}
-
-	// Also prepare flat list for backward compatibility
 	var flatIssues []map[string]interface{}
-	for _, group := range groupedIssues {
-		flatIssues = append(flatIssues, group.Issues...)
+	for _, cat := range categoryOrder {
+		groupedIssues = append(groupedIssues, issuesByCategory{Category: cat, Issues: categoryMap[cat]})
+		flatIssues = append(flatIssues, categoryMap[cat]...)
 	}
 
 	data := NewGenericData("Issues")
@@ -154,50 +105,39 @@ func (s *Server) handleIssueList(w http.ResponseWriter, r *http.Request) {
 	data["categoryFilter"] = categoryFilter
 	data["openCount"] = openCount
 	data["closedCount"] = closedCount
-	data["availableTags"] = s.getAvailableTags(ctx)
-	data["availableCategories"] = s.getAvailableCategories(ctx)
+	data["availableTags"] = s.Issues.AvailableTags(ctx)
+	data["availableCategories"] = s.Issues.AvailableCategories(ctx)
 	s.renderTemplate(w, r, "issues_list.html", data)
 }
 
 // handleIssueView handles viewing a single issue.
 func (s *Server) handleIssueView(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	idStr := chi.URLParam(r, "id")
-	id, err := parseInt64(idStr)
+	id, err := parseInt64(chi.URLParam(r, "id"))
 	if err != nil {
 		s.renderError(w, r, http.StatusBadRequest, "Invalid issue ID")
 		return
 	}
 
-	issue, err := s.DB.Queries.GetIssue(ctx, id)
+	issue, err := s.Issues.Get(ctx, id)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			s.renderError(w, r, http.StatusNotFound, "Issue not found")
-			return
-		}
-		s.renderError(w, r, http.StatusInternalServerError, "Failed to get issue")
+		s.renderIssueError(w, r, err)
 		return
 	}
 
-	// Render the description as markdown
+	// Render the description as markdown.
 	htmlContent := ""
 	if issue.Description.Valid && issue.Description.String != "" {
 		htmlContent, _, _ = s.Renderer.Render(issue.Description.String, "")
 	}
 
-	tags := parseTags(issue.Tags.String)
-
 	user := middleware.GetUser(r)
-	canEdit := user.IsAuthenticated()
-	canDelete := user.Admin()
 
-	// Load comments
-	comments, err := s.DB.Queries.ListIssueComments(ctx, issue.ID)
+	comments, err := s.Issues.ListComments(ctx, issue.ID)
 	if err != nil {
 		slog.Warn("failed to list issue comments", "error", err)
 	}
 
-	// Render each comment's content as markdown
 	type renderedComment struct {
 		Comment     db.IssueComment
 		HTMLContent template.HTML
@@ -217,11 +157,11 @@ func (s *Server) handleIssueView(w http.ResponseWriter, r *http.Request) {
 	data := NewGenericData(fmt.Sprintf("#%d - %s", issue.ID, issue.Title))
 	data["issue"] = issue
 	data["htmlcontent"] = template.HTML(htmlContent)
-	data["tags"] = tags
-	data["availableTags"] = s.getAvailableTags(ctx)
-	data["availableCategories"] = s.getAvailableCategories(ctx)
-	data["canEdit"] = canEdit
-	data["canDelete"] = canDelete
+	data["tags"] = util.ParseTags(issue.Tags.String)
+	data["availableTags"] = s.Issues.AvailableTags(ctx)
+	data["availableCategories"] = s.Issues.AvailableCategories(ctx)
+	data["canEdit"] = user.IsAuthenticated()
+	data["canDelete"] = user.Admin()
 	data["comments"] = renderedComments
 	data["comment_count"] = len(comments)
 	s.renderTemplate(w, r, "issues_view.html", data)
@@ -231,63 +171,38 @@ func (s *Server) handleIssueView(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleIssueNew(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	data := NewGenericData("New Issue")
-	data["availableTags"] = s.getAvailableTags(ctx)
-	data["availableCategories"] = s.getAvailableCategories(ctx)
+	data["availableTags"] = s.Issues.AvailableTags(ctx)
+	data["availableCategories"] = s.Issues.AvailableCategories(ctx)
 	data["isEdit"] = false
 	s.renderTemplate(w, r, "issues_form.html", data)
 }
 
+// issueInputFromForm builds an issues.Input from the request form.
+func issueInputFromForm(r *http.Request) issues.Input {
+	return issues.Input{
+		Title:       r.FormValue("title"),
+		Description: r.FormValue("description"),
+		Category:    r.FormValue("category"),
+		Tags:        r.Form["tags"],
+	}
+}
+
 // handleIssueCreate handles creating a new issue.
 func (s *Server) handleIssueCreate(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	if err := r.ParseForm(); err != nil {
 		s.renderError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	title := strings.TrimSpace(r.FormValue("title"))
-	description := r.FormValue("description")
-	category := strings.TrimSpace(r.FormValue("category"))
-	tags := r.Form["tags"]
-
-	if title == "" {
-		s.SessionManager.AddFlashMessage(w, r, "danger", "Title is required")
-		http.Redirect(w, r, "/-/issues/new", http.StatusFound)
-		return
-	}
-
-	// Validate category if categories are configured
-	availableCategories := s.getAvailableCategories(ctx)
-	if len(availableCategories) > 0 && category == "" {
-		s.SessionManager.AddFlashMessage(w, r, "danger", "Category is required")
-		http.Redirect(w, r, "/-/issues/new", http.StatusFound)
-		return
-	}
-
-	user := middleware.GetUser(r)
-	createdByName := user.GetName()
-	createdByEmail := user.GetEmail()
-	if createdByName == "" {
-		createdByName = "Anonymous"
-	}
-
-	now := time.Now()
-	params := db.CreateIssueParams{
-		Title:          title,
-		Description:    db.NullString(description),
-		Status:         "open",
-		Category:       db.NullString(category),
-		Tags:           db.NullString(strings.Join(tags, ",")),
-		CreatedByName:  db.NullString(createdByName),
-		CreatedByEmail: db.NullString(createdByEmail),
-		CreatedAt:      db.NullTime(now),
-		UpdatedAt:      db.NullTime(now),
-	}
-
-	issue, err := s.DB.Queries.CreateIssue(ctx, params)
+	issue, err := s.Issues.Create(r.Context(), issueInputFromForm(r), s.issueAuthor(r))
 	if err != nil {
-		s.SessionManager.AddFlashMessage(w, r, "danger", "Failed to create issue")
-		http.Redirect(w, r, "/-/issues/new", http.StatusFound)
+		var ve *issues.ValidationError
+		if errors.As(err, &ve) {
+			s.SessionManager.AddFlashMessage(w, r, "danger", ve.Message)
+			http.Redirect(w, r, "/-/issues/new", http.StatusFound)
+			return
+		}
+		s.renderIssueError(w, r, err)
 		return
 	}
 
@@ -298,84 +213,47 @@ func (s *Server) handleIssueCreate(w http.ResponseWriter, r *http.Request) {
 // handleIssueEdit handles showing the edit issue form.
 func (s *Server) handleIssueEdit(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	idStr := chi.URLParam(r, "id")
-	id, err := parseInt64(idStr)
+	id, err := parseInt64(chi.URLParam(r, "id"))
 	if err != nil {
 		s.renderError(w, r, http.StatusBadRequest, "Invalid issue ID")
 		return
 	}
 
-	issue, err := s.DB.Queries.GetIssue(ctx, id)
+	issue, err := s.Issues.Get(ctx, id)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			s.renderError(w, r, http.StatusNotFound, "Issue not found")
-			return
-		}
-		s.renderError(w, r, http.StatusInternalServerError, "Failed to get issue")
+		s.renderIssueError(w, r, err)
 		return
 	}
 
-	tags := parseTags(issue.Tags.String)
-
 	data := NewGenericData(fmt.Sprintf("Edit Issue #%d", issue.ID))
 	data["issue"] = issue
-	data["tags"] = tags
-	data["availableTags"] = s.getAvailableTags(ctx)
-	data["availableCategories"] = s.getAvailableCategories(ctx)
+	data["tags"] = util.ParseTags(issue.Tags.String)
+	data["availableTags"] = s.Issues.AvailableTags(ctx)
+	data["availableCategories"] = s.Issues.AvailableCategories(ctx)
 	data["isEdit"] = true
 	s.renderTemplate(w, r, "issues_form.html", data)
 }
 
 // handleIssueUpdate handles updating an issue.
 func (s *Server) handleIssueUpdate(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	idStr := chi.URLParam(r, "id")
-	id, err := parseInt64(idStr)
+	id, err := parseInt64(chi.URLParam(r, "id"))
 	if err != nil {
 		s.renderError(w, r, http.StatusBadRequest, "Invalid issue ID")
 		return
 	}
-
 	if err := r.ParseForm(); err != nil {
 		s.renderError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	// Get existing issue
-	issue, err := s.DB.Queries.GetIssue(ctx, id)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			s.renderError(w, r, http.StatusNotFound, "Issue not found")
+	if _, err := s.Issues.Update(r.Context(), id, issueInputFromForm(r)); err != nil {
+		var ve *issues.ValidationError
+		if errors.As(err, &ve) {
+			s.SessionManager.AddFlashMessage(w, r, "danger", ve.Message)
+			http.Redirect(w, r, fmt.Sprintf("/-/issues/%d/edit", id), http.StatusFound)
 			return
 		}
-		s.renderError(w, r, http.StatusInternalServerError, "Failed to get issue")
-		return
-	}
-
-	title := strings.TrimSpace(r.FormValue("title"))
-	description := r.FormValue("description")
-	category := strings.TrimSpace(r.FormValue("category"))
-	tags := r.Form["tags"]
-
-	if title == "" {
-		s.SessionManager.AddFlashMessage(w, r, "danger", "Title is required")
-		http.Redirect(w, r, fmt.Sprintf("/-/issues/%d/edit", id), http.StatusFound)
-		return
-	}
-
-	params := db.UpdateIssueParams{
-		Title:       title,
-		Description: db.NullString(description),
-		Status:      issue.Status,
-		Category:    db.NullString(category),
-		Tags:        db.NullString(strings.Join(tags, ",")),
-		UpdatedAt:   db.NullTime(time.Now()),
-		ID:          id,
-	}
-
-	if err := s.DB.Queries.UpdateIssue(ctx, params); err != nil {
-		s.SessionManager.AddFlashMessage(w, r, "danger", "Failed to update issue")
-		http.Redirect(w, r, fmt.Sprintf("/-/issues/%d/edit", id), http.StatusFound)
+		s.renderIssueError(w, r, err)
 		return
 	}
 
@@ -385,55 +263,33 @@ func (s *Server) handleIssueUpdate(w http.ResponseWriter, r *http.Request) {
 
 // handleIssueClose handles closing an issue.
 func (s *Server) handleIssueClose(w http.ResponseWriter, r *http.Request) {
-	s.updateIssueStatus(w, r, "closed")
+	s.updateIssueStatus(w, r, "closed", "Issue closed")
 }
 
 // handleIssueReopen handles reopening an issue.
 func (s *Server) handleIssueReopen(w http.ResponseWriter, r *http.Request) {
-	s.updateIssueStatus(w, r, "open")
+	s.updateIssueStatus(w, r, "open", "Issue reopened")
 }
 
-// updateIssueStatus updates the status of an issue.
-func (s *Server) updateIssueStatus(w http.ResponseWriter, r *http.Request, status string) {
-	ctx := r.Context()
-	idStr := chi.URLParam(r, "id")
-	id, err := parseInt64(idStr)
+// updateIssueStatus updates the status of an issue and flashes a message.
+func (s *Server) updateIssueStatus(w http.ResponseWriter, r *http.Request, status, successMsg string) {
+	id, err := parseInt64(chi.URLParam(r, "id"))
 	if err != nil {
 		s.renderError(w, r, http.StatusBadRequest, "Invalid issue ID")
 		return
 	}
 
-	issue, err := s.DB.Queries.GetIssue(ctx, id)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			s.renderError(w, r, http.StatusNotFound, "Issue not found")
+	if _, err := s.Issues.SetStatus(r.Context(), id, status); err != nil {
+		if errors.Is(err, issues.ErrNotFound) {
+			s.renderIssueError(w, r, err)
 			return
 		}
-		s.renderError(w, r, http.StatusInternalServerError, "Failed to get issue")
-		return
-	}
-
-	params := db.UpdateIssueParams{
-		Title:       issue.Title,
-		Description: issue.Description,
-		Status:      status,
-		Category:    issue.Category,
-		Tags:        issue.Tags,
-		UpdatedAt:   db.NullTime(time.Now()),
-		ID:          id,
-	}
-
-	if err := s.DB.Queries.UpdateIssue(ctx, params); err != nil {
 		s.SessionManager.AddFlashMessage(w, r, "danger", "Failed to update issue status")
 		http.Redirect(w, r, fmt.Sprintf("/-/issues/%d", id), http.StatusFound)
 		return
 	}
 
-	if status == "closed" {
-		s.SessionManager.AddFlashMessage(w, r, "success", "Issue closed")
-	} else {
-		s.SessionManager.AddFlashMessage(w, r, "success", "Issue reopened")
-	}
+	s.SessionManager.AddFlashMessage(w, r, "success", successMsg)
 	http.Redirect(w, r, fmt.Sprintf("/-/issues/%d", id), http.StatusFound)
 }
 
@@ -442,16 +298,17 @@ func (s *Server) handleIssueDelete(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdmin(w, r) {
 		return
 	}
-
-	ctx := r.Context()
-	idStr := chi.URLParam(r, "id")
-	id, err := parseInt64(idStr)
+	id, err := parseInt64(chi.URLParam(r, "id"))
 	if err != nil {
 		s.renderError(w, r, http.StatusBadRequest, "Invalid issue ID")
 		return
 	}
 
-	if err := s.DB.Queries.DeleteIssue(ctx, id); err != nil {
+	if err := s.Issues.Delete(r.Context(), id); err != nil {
+		if errors.Is(err, issues.ErrNotFound) {
+			s.renderIssueError(w, r, err)
+			return
+		}
 		s.SessionManager.AddFlashMessage(w, r, "danger", "Failed to delete issue")
 		http.Redirect(w, r, fmt.Sprintf("/-/issues/%d", id), http.StatusFound)
 		return
@@ -463,55 +320,25 @@ func (s *Server) handleIssueDelete(w http.ResponseWriter, r *http.Request) {
 
 // handleIssueCommentCreate handles creating a new comment on an issue.
 func (s *Server) handleIssueCommentCreate(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	idStr := chi.URLParam(r, "id")
-	id, err := parseInt64(idStr)
+	id, err := parseInt64(chi.URLParam(r, "id"))
 	if err != nil {
 		s.renderError(w, r, http.StatusBadRequest, "Invalid issue ID")
 		return
 	}
-
 	if err := r.ParseForm(); err != nil {
 		s.renderError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	content := strings.TrimSpace(r.FormValue("content"))
-	if content == "" {
-		s.SessionManager.AddFlashMessage(w, r, "danger", "Comment cannot be empty")
-		http.Redirect(w, r, fmt.Sprintf("/-/issues/%d", id), http.StatusFound)
-		return
-	}
-
-	// Verify issue exists
-	if _, err := s.DB.Queries.GetIssue(ctx, id); err != nil {
-		if err == sql.ErrNoRows {
-			s.renderError(w, r, http.StatusNotFound, "Issue not found")
+	comment, err := s.Issues.CreateComment(r.Context(), id, r.FormValue("content"), s.issueAuthor(r))
+	if err != nil {
+		var ve *issues.ValidationError
+		if errors.As(err, &ve) {
+			s.SessionManager.AddFlashMessage(w, r, "danger", ve.Message)
+			http.Redirect(w, r, fmt.Sprintf("/-/issues/%d", id), http.StatusFound)
 			return
 		}
-		s.renderError(w, r, http.StatusInternalServerError, "Failed to get issue")
-		return
-	}
-
-	user := middleware.GetUser(r)
-	authorName := user.GetName()
-	authorEmail := user.GetEmail()
-	if authorName == "" {
-		authorName = "Anonymous"
-	}
-
-	now := time.Now()
-	comment, err := s.DB.Queries.CreateIssueComment(ctx, db.CreateIssueCommentParams{
-		IssueID:     id,
-		Content:     content,
-		AuthorName:  db.NullString(authorName),
-		AuthorEmail: db.NullString(authorEmail),
-		CreatedAt:   db.NullTime(now),
-		UpdatedAt:   db.NullTime(now),
-	})
-	if err != nil {
-		s.SessionManager.AddFlashMessage(w, r, "danger", "Failed to add comment")
-		http.Redirect(w, r, fmt.Sprintf("/-/issues/%d", id), http.StatusFound)
+		s.renderIssueError(w, r, err)
 		return
 	}
 
@@ -523,62 +350,22 @@ func (s *Server) handleIssueCommentDelete(w http.ResponseWriter, r *http.Request
 	if !s.requireAdmin(w, r) {
 		return
 	}
-
-	ctx := r.Context()
-	idStr := chi.URLParam(r, "id")
-	id, err := parseInt64(idStr)
+	id, err := parseInt64(chi.URLParam(r, "id"))
 	if err != nil {
 		s.renderError(w, r, http.StatusBadRequest, "Invalid issue ID")
 		return
 	}
-
-	commentIdStr := chi.URLParam(r, "commentId")
-	commentId, err := parseInt64(commentIdStr)
+	commentID, err := parseInt64(chi.URLParam(r, "commentId"))
 	if err != nil {
 		s.renderError(w, r, http.StatusBadRequest, "Invalid comment ID")
 		return
 	}
 
-	if err := s.DB.Queries.DeleteIssueComment(ctx, commentId); err != nil {
+	if err := s.Issues.DeleteComment(r.Context(), commentID); err != nil {
 		s.SessionManager.AddFlashMessage(w, r, "danger", "Failed to delete comment")
 	} else {
 		s.SessionManager.AddFlashMessage(w, r, "success", "Comment deleted")
 	}
 
 	http.Redirect(w, r, fmt.Sprintf("/-/issues/%d", id), http.StatusFound)
-}
-
-// parseTags parses a comma-separated tag string into a slice.
-func parseTags(tags string) []string {
-	if tags == "" {
-		return nil
-	}
-	parts := strings.Split(tags, ",")
-	result := make([]string, 0, len(parts))
-	for _, part := range parts {
-		trimmed := strings.TrimSpace(part)
-		if trimmed != "" {
-			result = append(result, trimmed)
-		}
-	}
-	return result
-}
-
-// containsTag checks if a comma-separated tag string contains a specific tag.
-func containsTag(tags, tag string) bool {
-	for _, t := range parseTags(tags) {
-		if t == tag {
-			return true
-		}
-	}
-	return false
-}
-
-// GetIssueByID is a helper for other packages to get an issue by ID.
-func (s *Server) GetIssueByID(ctx context.Context, id int64) (*db.Issue, error) {
-	issue, err := s.DB.Queries.GetIssue(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	return &issue, nil
 }

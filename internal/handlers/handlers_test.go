@@ -973,6 +973,9 @@ func TestSearch_WithResults(t *testing.T) {
 	env := testutil.SetupTestEnv(t)
 
 	env.Store.Store("searchable.md", "# Searchable\n\nThis contains the keyword findme.", "init", storage.Author{Name: "test", Email: "test@test.com"})
+	if err := env.Server.Wiki.EnsureSearchIndex(context.Background()); err != nil {
+		t.Fatalf("EnsureSearchIndex failed: %v", err)
+	}
 
 	req := httptest.NewRequest("GET", "/-/search?query=findme", nil)
 	w := httptest.NewRecorder()

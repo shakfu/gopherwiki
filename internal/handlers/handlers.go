@@ -14,6 +14,7 @@ import (
 	"github.com/sa/gopherwiki/internal/auth"
 	"github.com/sa/gopherwiki/internal/config"
 	"github.com/sa/gopherwiki/internal/db"
+	"github.com/sa/gopherwiki/internal/issues"
 	"github.com/sa/gopherwiki/internal/middleware"
 	"github.com/sa/gopherwiki/internal/renderer"
 	"github.com/sa/gopherwiki/internal/storage"
@@ -35,6 +36,7 @@ type Server struct {
 	StaticFS          fs.FS
 	Version           string
 	Auth              *auth.Auth
+	Issues            *issues.Service
 	SessionManager    *middleware.SessionManager
 	PermissionChecker *middleware.PermissionChecker
 
@@ -48,6 +50,7 @@ type Server struct {
 func NewServer(cfg *config.Config, store storage.Storage, database *db.Database, version string) (*Server, error) {
 	rend := renderer.New(cfg)
 	authService := auth.New(cfg, database.Queries)
+	issueService := issues.NewService(database, cfg)
 	sessionManager := middleware.NewSessionManager(cfg.SecretKey, cfg.SecureCookie, database.Queries)
 	permChecker := middleware.NewPermissionChecker(cfg, sessionManager)
 
@@ -61,6 +64,7 @@ func NewServer(cfg *config.Config, store storage.Storage, database *db.Database,
 		Renderer:          rend,
 		Version:           version,
 		Auth:              authService,
+		Issues:            issueService,
 		SessionManager:    sessionManager,
 		PermissionChecker: permChecker,
 	}

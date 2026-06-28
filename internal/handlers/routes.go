@@ -74,6 +74,16 @@ func (s *Server) Routes() chi.Router {
 	// the connection (or the process). Outermost so it wraps everything.
 	r.Use(middleware.Recoverer)
 
+	// Gzip text responses (HTML, JS, CSS, JSON, SVG). This shrinks the
+	// unminified app assets on the wire by ~70% without touching the files,
+	// avoiding the risk of bundler-minifying the global-scoped editor JS.
+	r.Use(middleware.Compress(5,
+		"text/html", "text/css", "text/plain",
+		"application/javascript", "text/javascript",
+		"application/json", "image/svg+xml",
+		"application/atom+xml", "application/rss+xml", "application/xml",
+	))
+
 	// Baseline security headers on every response.
 	r.Use(securityHeaders)
 

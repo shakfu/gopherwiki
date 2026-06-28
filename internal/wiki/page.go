@@ -98,12 +98,19 @@ func (p *Page) Breadcrumbs() []util.Breadcrumb {
 	return util.GetBreadcrumbs(p.Pagepath)
 }
 
-// Render renders the page content to HTML.
+// Render renders the page content to HTML. When the page has a committed
+// revision, the result is cached under "pagepath@revision" - an immutable key,
+// so editing the page (a new commit) naturally misses the cache. Pages without
+// metadata (new/unsaved, preview) are rendered uncached.
 func (p *Page) Render(r *renderer.Renderer) (string, []renderer.TOCEntry, renderer.LibraryRequirements) {
 	if p.Content == "" {
 		return "", nil, renderer.LibraryRequirements{}
 	}
-	return r.Render(p.Content, p.PageViewURL)
+	key := ""
+	if p.Metadata != nil && p.Metadata.RevisionFull != "" {
+		key = p.Pagepath + "@" + p.Metadata.RevisionFull
+	}
+	return r.RenderCached(key, p.Content, p.PageViewURL)
 }
 
 // Save saves the page content.

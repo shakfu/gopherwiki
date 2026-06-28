@@ -3,6 +3,7 @@ package wiki
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/sa/gopherwiki/internal/config"
@@ -59,6 +60,13 @@ func TestWikiServiceSearch(t *testing.T) {
 	ws, cleanup := setupTestService(t)
 	defer cleanup()
 	ctx := context.Background()
+
+	// Mirror a started-up service: the FTS index is populated from storage
+	// (the seed pages are created via store.Store, which bypasses SavePage's
+	// indexing).
+	if err := ws.EnsureSearchIndex(ctx); err != nil {
+		t.Fatalf("EnsureSearchIndex failed: %v", err)
+	}
 
 	t.Run("empty query returns nil", func(t *testing.T) {
 		results, err := ws.Search(context.Background(), "")
@@ -278,21 +286,66 @@ func TestFTS5Search_NoResults(t *testing.T) {
 	}
 }
 
-func TestFTS5Search_FallbackOnEmpty(t *testing.T) {
+func TestFTS5Search_EmptyIndexReturnsEmpty(t *testing.T) {
 	ws, cleanup := setupTestService(t)
 	defer cleanup()
+	ctx := context.Background()
 
-	// FTS5 index is empty, but git storage has pages.
-	// Search should fall through to brute-force and still find results.
-	results, err := ws.Search(context.Background(), "Welcome")
+	// With an unbuilt index, an FTS query that matches nothing returns empty -
+	// it must NOT fall back to an O(n) brute-force scan just because the index
+	// is empty. Building the index makes the pages findable.
+	results, err := ws.Search(ctx, "Welcome")
 	if err != nil {
 		t.Fatalf("Search returned error: %v", err)
 	}
-	if len(results) != 1 {
-		t.Fatalf("Expected 1 result from brute-force fallback, got %d", len(results))
+	if len(results) != 0 {
+		t.Fatalf("expected 0 results from an unbuilt index, got %d", len(results))
 	}
-	if results[0].Pagepath != "home" {
-		t.Errorf("Expected pagepath 'home', got %q", results[0].Pagepath)
+
+	if err := ws.EnsureSearchIndex(ctx); err != nil {
+		t.Fatalf("EnsureSearchIndex failed: %v", err)
+	}
+	results, err = ws.Search(ctx, "Welcome")
+	if err != nil {
+		t.Fatalf("Search returned error: %v", err)
+	}
+	if len(results) != 1 || results[0].Pagepath != "home" {
+		t.Fatalf("expected to find home after indexing, got %+v", results)
+	}
+}
+
+func TestSearch_SanitizesInvalidFTSQuery(t *testing.T) {
+	ws, cleanup := setupTestService(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	if err := ws.IndexPage(ctx, "lang", "# Lang\nAbout the alpha release.\n"); err != nil {
+		t.Fatalf("IndexPage failed: %v", err)
+	}
+
+	// "alpha)" is invalid raw FTS5 (unbalanced paren); the sanitized retry
+	// should still match the indexed page instead of erroring or scanning.
+	results, err := ws.Search(ctx, "alpha)")
+	if err != nil {
+		t.Fatalf("Search returned error: %v", err)
+	}
+	if len(results) != 1 || results[0].Pagepath != "lang" {
+		t.Fatalf("expected to find 'lang' via sanitized query, got %+v", results)
+	}
+}
+
+func TestSanitizeFTSQuery(t *testing.T) {
+	cases := map[string]string{
+		"hello world": `"hello" "world"`,
+		"c++":         `"c++"`,
+		`a"b`:         `"a""b"`,
+		"":            "",
+		"  spaced  ":  `"spaced"`,
+	}
+	for in, want := range cases {
+		if got := sanitizeFTSQuery(in); got != want {
+			t.Errorf("sanitizeFTSQuery(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 
@@ -329,6 +382,39 @@ func TestFTS5_IndexAndRemove(t *testing.T) {
 	if len(results) != 0 {
 		t.Errorf("Expected 0 results after removal, got %d", len(results))
 	}
+}
+
+func TestResolveAttachment(t *testing.T) {
+	ws, cleanup := setupTestService(t)
+	defer cleanup()
+	author := storage.Author{Name: "Test", Email: "test@example.com"}
+
+	// "guide" page already exists from the seed; add an attachment in its dir.
+	if _, err := ws.store.StoreBytes("guide/diagram.png", []byte("img"), "add", author); err != nil {
+		t.Fatalf("StoreBytes failed: %v", err)
+	}
+
+	t.Run("existing attachment resolves", func(t *testing.T) {
+		path, filename, ok := ws.ResolveAttachment("guide/diagram.png")
+		if !ok {
+			t.Fatal("expected attachment to resolve")
+		}
+		if filename != "diagram.png" || path != "guide/diagram.png" {
+			t.Errorf("got path=%q filename=%q", path, filename)
+		}
+	})
+
+	t.Run("missing attachment does not resolve", func(t *testing.T) {
+		if _, _, ok := ws.ResolveAttachment("guide/nope.png"); ok {
+			t.Error("expected missing attachment not to resolve")
+		}
+	})
+
+	t.Run("top-level page path does not resolve", func(t *testing.T) {
+		if _, _, ok := ws.ResolveAttachment("guide"); ok {
+			t.Error("a bare page path should not resolve as an attachment")
+		}
+	})
 }
 
 func TestRebuildIndex_ClearsStaleEntries(t *testing.T) {
@@ -432,6 +518,49 @@ func TestRenamePage_UpdatesIndex(t *testing.T) {
 	}
 	if results[0].Pagepath != "newname" {
 		t.Errorf("result pagepath = %q, want %q (old entry should be gone, new one present)", results[0].Pagepath, "newname")
+	}
+}
+
+func TestRenamePage_RewritesInboundLinks(t *testing.T) {
+	ws, cleanup := setupTestService(t)
+	defer cleanup()
+	ctx := context.Background()
+	author := storage.Author{Name: "Test", Email: "test@example.com"}
+
+	if _, err := ws.SavePage(ctx, "oldname", "# Old\nbody\n", "add", "", author); err != nil {
+		t.Fatalf("SavePage oldname: %v", err)
+	}
+	if _, err := ws.SavePage(ctx, "linker", "See [[oldname]] and [[oldname|the old page]].\n", "add", "", author); err != nil {
+		t.Fatalf("SavePage linker: %v", err)
+	}
+
+	// Sanity: the linker is a backlink of the old page.
+	if bl, _ := ws.Backlinks(ctx, "oldname"); len(bl) != 1 || bl[0] != "linker" {
+		t.Fatalf("pre-rename backlinks(oldname) = %v, want [linker]", bl)
+	}
+
+	if _, err := ws.RenamePage(ctx, "oldname", "newname", "rename", author); err != nil {
+		t.Fatalf("RenamePage: %v", err)
+	}
+
+	// The referencing page's links were rewritten to the new name.
+	content, err := ws.store.Load("linker.md", "")
+	if err != nil {
+		t.Fatalf("Load linker: %v", err)
+	}
+	if strings.Contains(content, "[[oldname]]") || strings.Contains(content, "[[oldname|") {
+		t.Errorf("linker still references the old name: %q", content)
+	}
+	if !strings.Contains(content, "[[newname]]") || !strings.Contains(content, "[[newname|the old page]]") {
+		t.Errorf("linker not rewritten to new name: %q", content)
+	}
+
+	// Backlinks now resolve under the new name, not the old one.
+	if bl, _ := ws.Backlinks(ctx, "newname"); len(bl) != 1 || bl[0] != "linker" {
+		t.Errorf("post-rename backlinks(newname) = %v, want [linker]", bl)
+	}
+	if bl, _ := ws.Backlinks(ctx, "oldname"); len(bl) != 0 {
+		t.Errorf("post-rename backlinks(oldname) = %v, want []", bl)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"html"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/alecthomas/chroma/v2"
 	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
@@ -39,10 +40,24 @@ type LibraryRequirements struct {
 	RequiresMathJax bool
 }
 
+// renderCacheMaxEntries bounds the rendered-HTML cache. Entries are keyed by an
+// immutable page revision, so an edit produces a new key (self-invalidating);
+// stale entries are evicted when the cap is reached.
+const renderCacheMaxEntries = 256
+
+type renderResult struct {
+	html string
+	toc  []TOCEntry
+	reqs LibraryRequirements
+}
+
 // Renderer handles markdown to HTML conversion.
 type Renderer struct {
 	config   *config.Config
 	markdown goldmark.Markdown
+
+	cacheMu sync.Mutex
+	cache   map[string]renderResult
 }
 
 // New creates a new Renderer with the given configuration.
@@ -109,7 +124,40 @@ func New(cfg *config.Config) *Renderer {
 	return &Renderer{
 		config:   cfg,
 		markdown: md,
+		cache:    make(map[string]renderResult),
 	}
+}
+
+// RenderCached renders source, caching the result under key. The key must
+// uniquely identify the content (e.g. "pagepath@commit-hash"); an empty key
+// bypasses the cache (used for live preview and unsaved content).
+func (r *Renderer) RenderCached(key, source, pageURL string) (string, []TOCEntry, LibraryRequirements) {
+	if key == "" {
+		return r.Render(source, pageURL)
+	}
+
+	r.cacheMu.Lock()
+	if e, ok := r.cache[key]; ok {
+		r.cacheMu.Unlock()
+		return e.html, e.toc, e.reqs
+	}
+	r.cacheMu.Unlock()
+
+	html, toc, reqs := r.Render(source, pageURL)
+
+	r.cacheMu.Lock()
+	if len(r.cache) >= renderCacheMaxEntries {
+		// Evict an arbitrary entry; revision-keying means evicted entries are
+		// only re-rendered if that exact old revision is viewed again.
+		for k := range r.cache {
+			delete(r.cache, k)
+			break
+		}
+	}
+	r.cache[key] = renderResult{html: html, toc: toc, reqs: reqs}
+	r.cacheMu.Unlock()
+
+	return html, toc, reqs
 }
 
 // Ensure chroma and styles are used (for CSS generation)
@@ -261,6 +309,37 @@ func processMermaidBlocks(html string) string {
 // Slugify is exported for use in templates.
 func Slugify(s string) string {
 	return slugify(s)
+}
+
+// RewriteWikiLinks rewrites [[target]] / [[target|display]] links whose
+// normalized target equals oldTarget so they point at newTarget, preserving any
+// display text. Issue references ([[#123]]) are left untouched. It returns the
+// rewritten content and whether anything changed. Normalization matches
+// ExtractWikiLinks (trim, spaces->hyphens, lowercase unless retainCase).
+func RewriteWikiLinks(content, oldTarget, newTarget string, retainCase bool) (string, bool) {
+	changed := false
+	out := wikiLinkRegex.ReplaceAllStringFunc(content, func(match string) string {
+		inner := match[2 : len(match)-2] // strip the surrounding [[ ]]
+		if strings.HasPrefix(inner, "#") {
+			return match // issue reference
+		}
+		target := inner
+		rest := ""
+		if i := strings.Index(inner, "|"); i >= 0 {
+			target = inner[:i]
+			rest = inner[i:] // keep the "|display" portion verbatim
+		}
+		norm := strings.ReplaceAll(strings.TrimSpace(target), " ", "-")
+		if !retainCase {
+			norm = strings.ToLower(norm)
+		}
+		if norm != oldTarget {
+			return match
+		}
+		changed = true
+		return "[[" + newTarget + rest + "]]"
+	})
+	return out, changed
 }
 
 // ExtractWikiLinks extracts normalized wikilink targets from markdown content.

@@ -34,7 +34,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Load the home page
-	page, err := wiki.NewPage(s.Storage, s.Config, homePage, "")
+	page, err := s.Wiki.Page(homePage, "")
 	if err != nil {
 		s.renderError(w, r, http.StatusInternalServerError, err.Error())
 		return
@@ -63,27 +63,13 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 
 	revision := r.URL.Query().Get("revision")
 
-	// Check if this is an attachment file request
-	// Pattern: pagepath/filename.ext where pagepath/ directory exists
-	if idx := strings.LastIndex(path, "/"); idx > 0 {
-		parentPath := path[:idx]
-		filename := path[idx+1:]
-
-		// Check if there's a .md page for the parent and the file exists in attachment dir
-		parentFilename := util.GetFilename(parentPath)
-		if !s.Config.RetainPageNameCase {
-			parentFilename = strings.ToLower(parentFilename)
-		}
-		attachmentDir := util.GetAttachmentDirectoryname(parentFilename)
-		attachmentPath := attachmentDir + "/" + filename
-
-		if s.Storage.Exists(attachmentPath) {
-			s.serveAttachment(w, r, attachmentPath, filename)
-			return
-		}
+	// A "page/file.ext" path may refer to one of the page's attachments.
+	if attachmentPath, filename, ok := s.Wiki.ResolveAttachment(path); ok {
+		s.serveAttachment(w, r, attachmentPath, filename)
+		return
 	}
 
-	page, err := wiki.NewPage(s.Storage, s.Config, path, revision)
+	page, err := s.Wiki.Page(path, revision)
 	if err != nil {
 		s.renderError(w, r, http.StatusInternalServerError, err.Error())
 		return
@@ -133,7 +119,7 @@ func (s *Server) handleEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page, err := wiki.NewPage(s.Storage, s.Config, path, "")
+	page, err := s.Wiki.Page(path, "")
 	if err != nil {
 		s.renderError(w, r, http.StatusInternalServerError, err.Error())
 		return
@@ -207,7 +193,7 @@ func (s *Server) handleSave(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 	path := chi.URLParam(r, "path")
 
-	page, err := wiki.NewPage(s.Storage, s.Config, path, "")
+	page, err := s.Wiki.Page(path, "")
 	if err != nil {
 		s.renderError(w, r, http.StatusInternalServerError, err.Error())
 		return
@@ -256,7 +242,7 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 	path := chi.URLParam(r, "path")
 	raw := r.URL.Query().Get("raw") != ""
 
-	page, err := wiki.NewPage(s.Storage, s.Config, path, "")
+	page, err := s.Wiki.Page(path, "")
 	if err != nil {
 		s.renderError(w, r, http.StatusInternalServerError, err.Error())
 		return
@@ -304,7 +290,7 @@ func (s *Server) handleCreateForm(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDeleteForm(w http.ResponseWriter, r *http.Request) {
 	path := chi.URLParam(r, "path")
 
-	page, err := wiki.NewPage(s.Storage, s.Config, path, "")
+	page, err := s.Wiki.Page(path, "")
 	if err != nil {
 		s.renderError(w, r, http.StatusInternalServerError, err.Error())
 		return
@@ -334,7 +320,7 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRenameForm(w http.ResponseWriter, r *http.Request) {
 	path := chi.URLParam(r, "path")
 
-	page, err := wiki.NewPage(s.Storage, s.Config, path, "")
+	page, err := s.Wiki.Page(path, "")
 	if err != nil {
 		s.renderError(w, r, http.StatusInternalServerError, err.Error())
 		return
@@ -367,7 +353,7 @@ func (s *Server) handleRename(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAttachments(w http.ResponseWriter, r *http.Request) {
 	path := chi.URLParam(r, "path")
 
-	page, err := wiki.NewPage(s.Storage, s.Config, path, "")
+	page, err := s.Wiki.Page(path, "")
 	if err != nil {
 		s.renderError(w, r, http.StatusInternalServerError, err.Error())
 		return
@@ -426,7 +412,7 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	page, err := wiki.NewPage(s.Storage, s.Config, path, "")
+	page, err := s.Wiki.Page(path, "")
 	if err != nil {
 		s.renderError(w, r, http.StatusInternalServerError, err.Error())
 		return
@@ -456,7 +442,7 @@ func (s *Server) handleBlame(w http.ResponseWriter, r *http.Request) {
 	path := chi.URLParam(r, "path")
 	revision := r.URL.Query().Get("revision")
 
-	page, err := wiki.NewPage(s.Storage, s.Config, path, revision)
+	page, err := s.Wiki.Page(path, revision)
 	if err != nil {
 		s.renderError(w, r, http.StatusInternalServerError, err.Error())
 		return
@@ -484,7 +470,7 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 	revA := r.URL.Query().Get("rev_a")
 	revB := r.URL.Query().Get("rev_b")
 
-	page, err := wiki.NewPage(s.Storage, s.Config, path, "")
+	page, err := s.Wiki.Page(path, "")
 	if err != nil {
 		s.renderError(w, r, http.StatusInternalServerError, err.Error())
 		return
@@ -522,7 +508,7 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 	content := r.FormValue("content")
 	path := chi.URLParam(r, "path")
 
-	page, err := wiki.NewPage(s.Storage, s.Config, path, "")
+	page, err := s.Wiki.Page(path, "")
 	if err != nil {
 		http.Error(w, "Invalid page path", http.StatusBadRequest)
 		return
@@ -767,7 +753,7 @@ func (s *Server) handleDraftSave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get current revision
-	page, err := wiki.NewPage(s.Storage, s.Config, path, "")
+	page, err := s.Wiki.Page(path, "")
 	if err != nil {
 		slog.Warn("failed to create page for draft", "path", path, "error", err)
 	}

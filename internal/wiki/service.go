@@ -73,9 +73,17 @@ func (ws *WikiService) Search(ctx context.Context, query string) ([]SearchResult
 	}
 
 	if ws.db != nil {
-		ftsResults, err := ws.db.SearchPages(ctx, query, 100)
-		if err == nil && len(ftsResults) > 0 {
-			var results []SearchResult
+		ftsResults, err := ws.db.SearchPages(ctx, query, maxSearchResults)
+		if err != nil {
+			// The raw query may be invalid FTS5 syntax (e.g. contains "+", ":",
+			// or an unbalanced quote). Retry it as sanitized quoted terms before
+			// resorting to a full-repo brute-force scan.
+			ftsResults, err = ws.db.SearchPages(ctx, sanitizeFTSQuery(query), maxSearchResults)
+		}
+		if err == nil {
+			// Note: an empty result set is a valid answer - do NOT fall back to
+			// the O(n) brute-force scan just because FTS found nothing.
+			results := make([]SearchResult, 0, len(ftsResults))
 			for _, r := range ftsResults {
 				pagename := r.Title
 				if pagename == "" {
@@ -90,13 +98,23 @@ func (ws *WikiService) Search(ctx context.Context, query string) ([]SearchResult
 			}
 			return results, nil
 		}
-		// On error or empty results, fall through to brute-force
-		if err != nil {
-			slog.Warn("FTS5 search failed, falling back to brute-force", "error", err)
-		}
+		slog.Warn("FTS5 search failed, falling back to brute-force", "error", err)
 	}
 
 	return ws.searchBruteForce(query)
+}
+
+// sanitizeFTSQuery turns arbitrary user input into a safe FTS5 MATCH expression
+// by quoting each whitespace-separated term as a literal (doubling embedded
+// quotes). This neutralizes FTS5 operators/special characters that would
+// otherwise cause a syntax error, while preserving implicit AND-of-terms
+// matching.
+func sanitizeFTSQuery(query string) string {
+	fields := strings.Fields(query)
+	for i, f := range fields {
+		fields[i] = `"` + strings.ReplaceAll(f, `"`, `""`) + `"`
+	}
+	return strings.Join(fields, " ")
 }
 
 // maxSearchResults is the maximum number of search results returned.
@@ -146,6 +164,35 @@ func (ws *WikiService) searchBruteForce(query string) ([]SearchResult, error) {
 	}
 
 	return results, nil
+}
+
+// Page constructs a Page for the given pagepath and revision, loading its
+// content and metadata from storage. This is the single entry point for reading
+// pages so handlers don't construct pages directly from storage/config.
+func (ws *WikiService) Page(pagepath, revision string) (*Page, error) {
+	return NewPage(ws.store, ws.config, pagepath, revision)
+}
+
+// ResolveAttachment reports whether a view path refers to an existing
+// attachment (e.g. "guide/diagram.png" maps to the "guide" page's attachment
+// directory) and, if so, returns the storage path and filename to serve. This
+// keeps the page-vs-attachment routing rule in the domain layer rather than the
+// HTTP handler.
+func (ws *WikiService) ResolveAttachment(path string) (attachmentPath, filename string, ok bool) {
+	idx := strings.LastIndex(path, "/")
+	if idx <= 0 {
+		return "", "", false
+	}
+	parentFilename := util.GetFilename(path[:idx])
+	if !ws.config.RetainPageNameCase {
+		parentFilename = strings.ToLower(parentFilename)
+	}
+	filename = path[idx+1:]
+	attachmentPath = util.GetAttachmentDirectoryname(parentFilename) + "/" + filename
+	if !ws.store.Exists(attachmentPath) {
+		return "", "", false
+	}
+	return attachmentPath, filename, true
 }
 
 // Backlinks returns all pages that link to the given page.
@@ -455,12 +502,10 @@ func (ws *WikiService) DeletePage(ctx context.Context, pagepath, message string,
 
 // RenamePage renames a page (and its attachments) and keeps the derived state
 // consistent: the old page is dropped from the search index and backlink graph,
-// the new page is indexed, and the page-tree cache is invalidated. It returns
-// the normalized pagepath of the renamed page.
-//
-// Note: inbound [[wikilinks]] in other pages are intentionally not rewritten -
-// silently editing other users' content on a rename is surprising and risky.
-// Such links continue to point at the old name until edited.
+// the new page is indexed, inbound [[wikilinks]] in pages that referenced the
+// old name are rewritten to the new name (so links and backlinks stay valid),
+// and the page-tree cache is invalidated. It returns the normalized pagepath of
+// the renamed page.
 func (ws *WikiService) RenamePage(ctx context.Context, pagepath, newPagename, message string, author storage.Author) (string, error) {
 	page, err := NewPage(ws.store, ws.config, pagepath, "")
 	if err != nil {
@@ -471,11 +516,17 @@ func (ws *WikiService) RenamePage(ctx context.Context, pagepath, newPagename, me
 		message = "Renamed " + page.Pagename + " to " + newPagename
 	}
 
+	// Capture pages linking to the old name before the index is altered.
+	backlinks, blErr := ws.Backlinks(ctx, pagepath)
+	if blErr != nil {
+		slog.Warn("failed to load backlinks for rename", "path", pagepath, "error", blErr)
+	}
+
 	if err := page.Rename(newPagename, message, author); err != nil {
 		return "", err
 	}
 
-	// Maintain derived state.
+	// Maintain derived state for the renamed page itself.
 	if err := ws.RemovePageFromIndex(ctx, pagepath); err != nil {
 		slog.Warn("failed to remove old page from index", "path", pagepath, "error", err)
 	}
@@ -490,8 +541,36 @@ func (ws *WikiService) RenamePage(ctx context.Context, pagepath, newPagename, me
 		}
 	}
 
+	ws.rewriteInboundLinks(ctx, backlinks, pagepath, newPagename, page.Pagename, author)
+
 	ws.InvalidatePageTreeCache()
 	return newPath, nil
+}
+
+// rewriteInboundLinks updates [[oldPath]] wikilinks to point at newName in each
+// of the given source pages, committing and re-indexing the ones that change.
+func (ws *WikiService) rewriteInboundLinks(ctx context.Context, sources []string, oldPath, newName, oldName string, author storage.Author) {
+	for _, src := range sources {
+		if src == oldPath {
+			continue // the renamed page itself was already moved
+		}
+		srcPage, err := NewPage(ws.store, ws.config, src, "")
+		if err != nil || !srcPage.Exists {
+			continue
+		}
+		newContent, changed := renderer.RewriteWikiLinks(srcPage.Content, oldPath, newName, ws.config.RetainPageNameCase)
+		if !changed {
+			continue
+		}
+		msg := "Update links: " + oldName + " renamed to " + newName
+		if _, err := srcPage.Save(newContent, msg, author); err != nil {
+			slog.Warn("failed to rewrite links in referencing page", "path", src, "error", err)
+			continue
+		}
+		if err := ws.IndexPage(ctx, srcPage.Pagepath, newContent); err != nil {
+			slog.Warn("failed to reindex referencing page", "path", src, "error", err)
+		}
+	}
 }
 
 // Diff returns the diff between two revisions.

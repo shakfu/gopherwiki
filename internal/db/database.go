@@ -129,6 +129,14 @@ func Open(uri string) (*Database, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
+	// Bound the pool to a single connection. SQLite is a single-writer engine,
+	// so this serializes writes (avoiding SQLITE_BUSY) without relying solely on
+	// the busy timeout; for an in-memory database it is also required for
+	// correctness, since each additional connection would otherwise get its own
+	// independent empty database. Read concurrency is traded for simplicity,
+	// which is acceptable for this workload (git is the dominant cost).
+	conn.SetMaxOpenConns(1)
+
 	// Test the connection
 	if err := conn.Ping(); err != nil {
 		conn.Close()

@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -233,6 +234,15 @@ func (g *GitStorage) StoreBytes(filename string, content []byte, message string,
 	fullPath := filepath.Join(g.path, filename)
 	dir := filepath.Dir(fullPath)
 
+	// Skip the commit if the file already holds exactly this content. Reading
+	// the single file is O(1); the previous worktree.Status() check hashed the
+	// entire worktree on every save, which dominated the write path on large
+	// wikis. This relies on the invariant that all writes go through Store, so
+	// the worktree always matches HEAD.
+	if existing, err := os.ReadFile(fullPath); err == nil && bytes.Equal(existing, content) {
+		return false, nil
+	}
+
 	// Create directory if needed
 	if dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0o775); err != nil {
@@ -251,18 +261,7 @@ func (g *GitStorage) StoreBytes(filename string, content []byte, message string,
 		return false, err
 	}
 
-	// Check if file has changed
-	status, err := worktree.Status()
-	if err != nil {
-		return false, err
-	}
-
-	fileStatus := status.File(filename)
-	if fileStatus.Staging == git.Unmodified && fileStatus.Worktree == git.Unmodified {
-		return false, nil
-	}
-
-	// Add and commit
+	// Stage just this file (avoiding a full-worktree scan) and commit.
 	if _, err := worktree.Add(filename); err != nil {
 		return false, err
 	}

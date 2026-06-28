@@ -71,6 +71,43 @@ func TestGitStorageStore(t *testing.T) {
 	}
 }
 
+func TestGitStorageStore_ChangeDetection(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "gopherwiki-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	gs, err := NewGitStorage(tmpDir, true)
+	if err != nil {
+		t.Fatalf("Failed to create GitStorage: %v", err)
+	}
+	author := Author{Name: "Test User", Email: "test@example.com"}
+
+	if changed, _ := gs.Store("p.md", "v1", "c1", author); !changed {
+		t.Error("new file: expected changed=true")
+	}
+	// Identical content must be detected as unchanged (no new commit).
+	if changed, err := gs.Store("p.md", "v1", "c2", author); err != nil || changed {
+		t.Errorf("identical content: changed=%v err=%v, want changed=false", changed, err)
+	}
+	// Different content commits and reports changed.
+	if changed, _ := gs.Store("p.md", "v2", "c3", author); !changed {
+		t.Error("modified content: expected changed=true")
+	}
+	if content, _ := gs.Load("p.md", ""); content != "v2" {
+		t.Errorf("content = %q, want v2", content)
+	}
+	// History should have two commits for this file (v1, v2), not three.
+	log, err := gs.Log("p.md", 0)
+	if err != nil {
+		t.Fatalf("Log failed: %v", err)
+	}
+	if len(log) != 2 {
+		t.Errorf("commit count = %d, want 2 (the unchanged write must not commit)", len(log))
+	}
+}
+
 func TestGitStorageHistory(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "gopherwiki-test-*")
 	if err != nil {

@@ -7,6 +7,51 @@ import (
 	"github.com/sa/gopherwiki/internal/config"
 )
 
+func TestRewriteWikiLinks(t *testing.T) {
+	in := "See [[old-page]], [[Old Page|the page]], [[other]] and [[#123]]."
+	out, changed := RewriteWikiLinks(in, "old-page", "new-page", false)
+	if !changed {
+		t.Fatal("expected changed=true")
+	}
+	want := "See [[new-page]], [[new-page|the page]], [[other]] and [[#123]]."
+	if out != want {
+		t.Errorf("got %q, want %q", out, want)
+	}
+
+	// No matching link -> unchanged.
+	if _, changed := RewriteWikiLinks("just [[unrelated]] here", "old-page", "new-page", false); changed {
+		t.Error("expected changed=false when nothing matches")
+	}
+}
+
+func TestRenderCached(t *testing.T) {
+	r := New(config.Default())
+
+	// A cache hit returns the stored result and ignores new source for the
+	// same key (proving the cached value is served, not re-rendered).
+	first, _, _ := r.RenderCached("page@rev1", "# Original", "/p")
+	second, _, _ := r.RenderCached("page@rev1", "# Completely Different", "/p")
+	if first != second {
+		t.Errorf("cache hit should return original render; got %q then %q", first, second)
+	}
+	if !strings.Contains(first, "Original") {
+		t.Errorf("expected rendered Original heading, got %q", first)
+	}
+
+	// A different key renders the new content.
+	other, _, _ := r.RenderCached("page@rev2", "# Completely Different", "/p")
+	if !strings.Contains(other, "Different") {
+		t.Errorf("new key should render new content, got %q", other)
+	}
+
+	// An empty key bypasses the cache entirely.
+	a, _, _ := r.RenderCached("", "# AAA", "/p")
+	b, _, _ := r.RenderCached("", "# BBB", "/p")
+	if a == b {
+		t.Error("empty key must render fresh each call")
+	}
+}
+
 func TestRenderInlineMath(t *testing.T) {
 	r := New(config.Default())
 

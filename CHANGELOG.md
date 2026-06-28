@@ -7,15 +7,38 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.1.2]
+
 ### Added
 
+- **API list pagination**: `GET /-/api/v1/pages`, `/issues`, `/search`, and `/changelog` accept `limit` (default 50, max 200) and `offset` query parameters and return a `pagination` block (`total`, `limit`, `offset`, `has_more`) alongside `data`. Existing clients that ignore the new field and read the first page are unaffected.
 - **Admin "Rebuild Search Index" action**: A maintenance button in Admin Settings rebuilds the full-text search index and backlink graph from the Git repository on demand - the recovery path when derived state diverges from the repo.
+
+### Changed
+
+- **Issue tracker refactored behind a service layer**: A new `internal/issues` package owns all issue/comment validation, lookups, and mutations. The HTML and JSON API handlers now call it instead of duplicating ~200 lines of identical logic, and behave consistently (e.g. the API now enforces "category required" when categories are configured, matching the web form). `ParseTags`/`ContainsTag` moved to `internal/util`.
+- **Page reads consolidated behind the wiki service**: Handlers now read pages via `WikiService.Page` instead of constructing them directly from storage/config (~16 call sites), and the page-vs-attachment routing rule moved out of the view handler into `WikiService.ResolveAttachment`.
+
+### Performance
+
+- **Gzip-compressed responses**: HTML, CSS, JS, JSON, SVG, and feed responses are now gzip-compressed on the wire (e.g. the main app script drops from ~60 KB to ~13 KB).
+- **Lighter static assets**: Removed ~3 MB of unused files - the FontAwesome brands font and all legacy `.eot`/`.svg`/`.ttf`/`.woff` formats (icons now load woff2-only), the unminified FontAwesome stylesheet, and the unreferenced `Sortable`/`inline-attachment` scripts.
+- **Rendered-HTML cache**: Page renders are cached keyed by `pagepath@commit-hash`. Because the key is an immutable git revision, an edit naturally produces a new key (self-invalidating, no manual cache busting), and repeat views skip the markdown render entirely.
+- **Faster page saves**: Saving a page no longer runs `git status` over the whole worktree to detect changes - it compares the new content against the existing file directly, removing an O(repository-size) cost from every write.
 
 ### Fixed
 
+- **Every empty search scanned the whole repository**: A search that the FTS index legitimately had no matches for fell through to an O(n) brute-force scan that loaded every page from git. Empty FTS results are now returned as-is; brute-force is reserved for genuine FTS errors.
+- **Invalid search input degraded to a full scan**: Queries containing FTS5 special characters (e.g. `+`, `:`, unbalanced quotes/parens) raised a syntax error and fell back to the brute-force scan. Such queries are now retried as sanitized quoted terms against the index first.
+- **Unbounded SQLite connection pool**: The pool is now limited to a single connection. This serializes writes (avoiding `SQLITE_BUSY`) and, for in-memory databases, prevents each pooled connection from becoming a separate empty database.
 - **Revert left search and backlinks stale**: Reverting a commit updated Git but not the derived state, so search results, backlinks, and the sidebar reflected pre-revert content. `Revert` now rebuilds the index and invalidates the page-tree cache.
 - **Search index could not self-heal**: A failed incremental index update previously persisted until the database was deleted (the only automatic rebuild required a completely empty index). An unconditional `RebuildIndex` now backs both the admin action and post-revert repair.
 - **Rename did not refresh the sidebar**: Renaming a page left the cached page tree stale until its TTL expired; the cache is now invalidated immediately. Rename's index maintenance also moved behind the wiki service for consistency with save/delete.
+- **Rename broke inbound links and backlinks**: Renaming a page left `[[wikilinks]]` in other pages pointing at the old (now-missing) name, and those pages no longer appeared as backlinks of the renamed page. Rename now rewrites the referencing pages' links to the new name (committing and re-indexing each), so links keep working and backlinks resolve under the new name.
+
+### Internal
+
+- **CI builds the editor bundle**: The pipeline now installs Bun, rebuilds `editor.bundle.js`, and fails if the committed artifact is stale, so editor source changes can no longer silently drift from the shipped bundle.
 
 ## [0.1.1]
 

@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/sa/gopherwiki/internal/storage"
-	"github.com/sa/gopherwiki/internal/wiki"
 )
 
 // handleAPIPageList handles GET /api/v1/pages -- lists all pages.
@@ -20,7 +19,10 @@ func (s *Server) handleAPIPageList(w http.ResponseWriter, r *http.Request) {
 	for _, e := range entries {
 		result = append(result, pageIndexToAPI(e))
 	}
-	writeJSON(w, http.StatusOK, result)
+
+	limit, offset := paginationParams(r)
+	page, meta := paginate(result, limit, offset)
+	writeJSONPaginated(w, http.StatusOK, page, meta)
 }
 
 // handleAPIPage is the wildcard handler for /api/v1/pages/*.
@@ -68,7 +70,7 @@ func (s *Server) handleAPIPage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAPIPageGet(w http.ResponseWriter, r *http.Request, pagePath string) {
 	revision := r.URL.Query().Get("revision")
 
-	page, err := wiki.NewPage(s.Storage, s.Config, pagePath, revision)
+	page, err := s.Wiki.Page(pagePath, revision)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "failed to load page")
 		return
@@ -115,7 +117,7 @@ func (s *Server) handleAPIPageSave(w http.ResponseWriter, r *http.Request, pageP
 	}
 
 	// Reload page to get updated metadata
-	updated, err := wiki.NewPage(s.Storage, s.Config, pagePath, "")
+	updated, err := s.Wiki.Page(pagePath, "")
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "page saved but failed to reload")
 		return
@@ -146,7 +148,7 @@ func (s *Server) handleAPIPageDelete(w http.ResponseWriter, r *http.Request, pag
 
 // handleAPIPageHistory handles GET /api/v1/pages/{path}/history.
 func (s *Server) handleAPIPageHistory(w http.ResponseWriter, r *http.Request, pagePath string) {
-	page, err := wiki.NewPage(s.Storage, s.Config, pagePath, "")
+	page, err := s.Wiki.Page(pagePath, "")
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "failed to load page")
 		return
@@ -198,16 +200,23 @@ func (s *Server) handleAPISearch(w http.ResponseWriter, r *http.Request) {
 	for _, r := range results {
 		apiResults = append(apiResults, searchResultToAPI(r))
 	}
-	writeJSON(w, http.StatusOK, apiResults)
+
+	limit, offset := paginationParams(r)
+	page, meta := paginate(apiResults, limit, offset)
+	writeJSONPaginated(w, http.StatusOK, page, meta)
 }
 
 // handleAPIChangelog handles GET /api/v1/changelog.
 func (s *Server) handleAPIChangelog(w http.ResponseWriter, r *http.Request) {
-	changelog, err := s.Wiki.Changelog(r.Context(), 100)
+	// Changelog is a git log; total is reported within the most recent
+	// maxChangelogScan commits rather than walking all of history.
+	changelog, err := s.Wiki.Changelog(r.Context(), maxChangelogScan)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "failed to get changelog")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, commitsToAPI(changelog))
+	limit, offset := paginationParams(r)
+	page, meta := paginate(commitsToAPI(changelog), limit, offset)
+	writeJSONPaginated(w, http.StatusOK, page, meta)
 }

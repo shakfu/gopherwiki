@@ -189,8 +189,8 @@ func (s *Server) handleAdminSettings(w http.ResponseWriter, r *http.Request) {
 	siteSettings := s.getSiteSettings(ctx)
 
 	// Get current issue tags and categories from preferences or config
-	issueTags := s.getAvailableTags(ctx)
-	issueCategories := s.getAvailableCategories(ctx)
+	issueTags := s.Issues.AvailableTags(ctx)
+	issueCategories := s.Issues.AvailableCategories(ctx)
 
 	data := NewGenericData("Site Settings")
 	data["site_settings"] = s.Config
