@@ -4,7 +4,7 @@ GopherWiki is a wiki for collaborative content management. Content is stored in 
 
 GopherWiki is written in [Go](https://go.dev/) using [Chi](https://github.com/go-chi/chi) for routing, [goldmark](https://github.com/yuin/goldmark) for Markdown rendering, and [go-git](https://github.com/go-git/go-git) for version control. It compiles to a single binary with embedded assets for easy deployment.
 
-This project is a Go translation of [An Otter Wiki](https://github.com/redimp/otterwiki), maintaining feature parity while leveraging Go's single-binary deployment advantage.
+This project started off as a Go translation of [Otter Wiki](https://github.com/redimp/otterwiki), attempting feature parity while leveraging Go's single-binary deployment advantage.
 
 ## Features
 
