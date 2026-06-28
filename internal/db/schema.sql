@@ -33,6 +33,9 @@ CREATE TABLE IF NOT EXISTS drafts (
 
 CREATE INDEX IF NOT EXISTS idx_drafts_pagepath ON drafts(pagepath);
 
+-- One draft per (page, author): required for UpsertDraft's ON CONFLICT target.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_drafts_page_author ON drafts(pagepath, author_email);
+
 CREATE TABLE IF NOT EXISTS cache (
     key TEXT PRIMARY KEY,
     value TEXT,

@@ -84,13 +84,12 @@ WHERE id = ?;
 -- name: UpsertDraft :exec
 INSERT INTO drafts (pagepath, revision, author_email, content, cursor_line, cursor_ch, datetime)
 VALUES (?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT DO UPDATE SET
+ON CONFLICT(pagepath, author_email) DO UPDATE SET
     revision = excluded.revision,
     content = excluded.content,
     cursor_line = excluded.cursor_line,
     cursor_ch = excluded.cursor_ch,
-    datetime = excluded.datetime
-WHERE pagepath = excluded.pagepath AND author_email = excluded.author_email;
+    datetime = excluded.datetime;
 
 -- name: DeleteDraft :exec
 DELETE FROM drafts WHERE pagepath = ? AND author_email = ?;

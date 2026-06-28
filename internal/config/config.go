@@ -18,10 +18,11 @@ type Config struct {
 	Debug      bool
 	Testing    bool
 	DevMode    bool
-	LogLevel   string
-	LogFormat  string
-	Repository string
-	SecretKey  string
+	LogLevel     string
+	LogFormat    string
+	Repository   string
+	SecretKey    string
+	SecureCookie bool
 
 	// Site settings
 	SiteName        string
@@ -101,6 +102,7 @@ func Default() *Config {
 		LogFormat:              "text",
 		Repository:             "",
 		SecretKey:              "CHANGE ME",
+		SecureCookie:           false,
 		SiteName:               "GopherWiki",
 		SiteDescription:        "",
 		SiteURL:                "http://localhost:8080",
@@ -217,6 +219,11 @@ func (c *Config) LoadFromEnv() {
 	c.SiteLang = getEnv("SITE_LANG", c.SiteLang)
 	c.HideLogo = getEnvBool("HIDE_LOGO", c.HideLogo)
 	c.HomePage = getEnv("HOME_PAGE", c.HomePage)
+
+	// Secure session cookie: default on when the public URL is https and we are
+	// not in dev mode; always overridable via COOKIE_SECURE.
+	autoSecure := strings.HasPrefix(strings.ToLower(c.SiteURL), "https://") && !c.DevMode
+	c.SecureCookie = getEnvBool("COOKIE_SECURE", autoSecure)
 
 	// Auth settings
 	c.AuthMethod = getEnv("AUTH_METHOD", c.AuthMethod)

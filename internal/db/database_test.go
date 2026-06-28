@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"testing"
 	"time"
 )
@@ -59,9 +60,9 @@ func TestSchemaVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion failed: %v", err)
 	}
-	// Should be at the latest migration version (currently 5)
-	if version != 5 {
-		t.Errorf("SchemaVersion = %d, want 5", version)
+	// Should be at the latest migration version (currently 6)
+	if version != 6 {
+		t.Errorf("SchemaVersion = %d, want 6", version)
 	}
 }
 
@@ -78,8 +79,8 @@ func TestMigrateIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion failed: %v", err)
 	}
-	if version != 5 {
-		t.Errorf("SchemaVersion after re-migrate = %d, want 5", version)
+	if version != 6 {
+		t.Errorf("SchemaVersion after re-migrate = %d, want 6", version)
 	}
 }
 
@@ -398,6 +399,81 @@ func TestDraftCRUD(t *testing.T) {
 	})
 	if err == nil {
 		t.Error("GetDraft should fail after delete")
+	}
+}
+
+func TestUpsertDraftUpdatesInPlace(t *testing.T) {
+	database := openTestDB(t)
+	ctx := context.Background()
+
+	pagepath := sql.NullString{String: "testpage", Valid: true}
+	email := sql.NullString{String: "user@example.com", Valid: true}
+
+	mk := func(content string) UpsertDraftParams {
+		return UpsertDraftParams{
+			Pagepath:    pagepath,
+			Revision:    sql.NullString{String: "rev", Valid: true},
+			AuthorEmail: email,
+			Content:     sql.NullString{String: content, Valid: true},
+			CursorLine:  sql.NullInt64{Int64: 0, Valid: true},
+			CursorCh:    sql.NullInt64{Int64: 0, Valid: true},
+			Datetime:    sql.NullTime{Time: time.Now(), Valid: true},
+		}
+	}
+
+	// Three autosaves of the same draft must not accumulate rows.
+	for _, c := range []string{"first", "second", "third"} {
+		if err := database.Queries.UpsertDraft(ctx, mk(c)); err != nil {
+			t.Fatalf("UpsertDraft(%q) failed: %v", c, err)
+		}
+	}
+
+	var count int
+	if err := database.Conn().QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM drafts WHERE pagepath = ? AND author_email = ?`,
+		pagepath, email).Scan(&count); err != nil {
+		t.Fatalf("count query failed: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("draft row count = %d, want 1 (upsert should update in place)", count)
+	}
+
+	loaded, err := database.Queries.GetDraft(ctx, GetDraftParams{Pagepath: pagepath, AuthorEmail: email})
+	if err != nil {
+		t.Fatalf("GetDraft failed: %v", err)
+	}
+	if loaded.Content.String != "third" {
+		t.Errorf("Content = %q, want %q (latest autosave)", loaded.Content.String, "third")
+	}
+}
+
+func TestSearchPagesEscapesSnippet(t *testing.T) {
+	database := openTestDB(t)
+	ctx := context.Background()
+
+	// Page content carrying an XSS payload adjacent to a searchable term.
+	const payload = `alpha bravo <img src=x onerror=alert(1)> charlie`
+	if err := database.UpsertPageIndex(ctx, "evil", "Evil", payload); err != nil {
+		t.Fatalf("UpsertPageIndex failed: %v", err)
+	}
+
+	results, err := database.SearchPages(ctx, "bravo", 10)
+	if err != nil {
+		t.Fatalf("SearchPages failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1", len(results))
+	}
+	snippet := results[0].Snippet
+
+	if strings.Contains(snippet, "<img") {
+		t.Errorf("snippet contains unescaped markup: %q", snippet)
+	}
+	if !strings.Contains(snippet, "&lt;img") {
+		t.Errorf("snippet should contain escaped markup, got: %q", snippet)
+	}
+	if !strings.Contains(snippet, "<mark>") {
+		t.Errorf("snippet should retain highlight markers, got: %q", snippet)
 	}
 }
 

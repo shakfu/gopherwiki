@@ -276,7 +276,7 @@ func TestRegister_Disabled(t *testing.T) {
 func TestLogout(t *testing.T) {
 	env := testutil.SetupTestEnv(t)
 
-	req := httptest.NewRequest("GET", "/-/logout", nil)
+	req := httptest.NewRequest("POST", "/-/logout", nil)
 	w := httptest.NewRecorder()
 	env.Router.ServeHTTP(w, req)
 
@@ -1649,6 +1649,89 @@ func TestServeAttachment(t *testing.T) {
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("missing attachment: status = %d, want %d", w.Code, http.StatusNotFound)
+	}
+}
+
+func TestUploadAttachmentRejectsBadFilename(t *testing.T) {
+	env := testutil.SetupTestEnv(t)
+	env.Store.Store("uploadpage.md", "# Upload Page", "init", storage.Author{Name: "test", Email: "test@test.com"})
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	// ".." has no extension/separators but must not be accepted: it would
+	// otherwise resolve to the attachment directory itself.
+	part, err := writer.CreateFormFile("file", "..")
+	if err != nil {
+		t.Fatalf("failed to create form file: %v", err)
+	}
+	part.Write([]byte("payload"))
+	writer.Close()
+
+	req := httptest.NewRequest("POST", "/uploadpage/attachments", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	w := httptest.NewRecorder()
+	env.Router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d for invalid filename", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestServeAttachmentSVGForcesDownload(t *testing.T) {
+	env := testutil.SetupTestEnv(t)
+
+	env.Store.Store("svgpage.md", "# SVG Page", "init", storage.Author{Name: "test", Email: "test@test.com"})
+	svg := []byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`)
+	env.Store.StoreBytes("svgpage/evil.svg", svg, "add svg", storage.Author{Name: "test", Email: "test@test.com"})
+
+	req := httptest.NewRequest("GET", "/svgpage/evil.svg", nil)
+	w := httptest.NewRecorder()
+	env.Router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+	if cd := w.Header().Get("Content-Disposition"); !strings.Contains(cd, "attachment") {
+		t.Errorf("Content-Disposition = %q, want it to force download for SVG", cd)
+	}
+	if nosniff := w.Header().Get("X-Content-Type-Options"); nosniff != "nosniff" {
+		t.Errorf("X-Content-Type-Options = %q, want %q", nosniff, "nosniff")
+	}
+}
+
+func TestSecurityHeaders(t *testing.T) {
+	env := testutil.SetupTestEnv(t)
+
+	req := httptest.NewRequest("GET", "/", nil)
+	w := httptest.NewRecorder()
+	env.Router.ServeHTTP(w, req)
+
+	checks := map[string]string{
+		"X-Content-Type-Options": "nosniff",
+		"X-Frame-Options":        "SAMEORIGIN",
+		"Referrer-Policy":        "strict-origin-when-cross-origin",
+	}
+	for header, want := range checks {
+		if got := w.Header().Get(header); got != want {
+			t.Errorf("%s = %q, want %q", header, got, want)
+		}
+	}
+
+	csp := w.Header().Get("Content-Security-Policy")
+	if csp == "" {
+		t.Fatal("Content-Security-Policy header missing")
+	}
+	// Strict script-src: no third-party origins, no unsafe-inline, no unsafe-eval.
+	// All scripts are external same-origin files and inline handlers were removed.
+	if !strings.Contains(csp, "script-src 'self'") {
+		t.Errorf("CSP should set strict script-src 'self': %q", csp)
+	}
+	if strings.Contains(csp, "script-src 'self' 'unsafe-inline'") ||
+		strings.Contains(csp, "unsafe-eval") || strings.Contains(csp, "jsdelivr") {
+		t.Errorf("CSP script-src must not allow unsafe-inline/unsafe-eval/CDNs: %q", csp)
+	}
+	if !strings.Contains(csp, "default-src 'self'") {
+		t.Errorf("CSP should set default-src 'self': %q", csp)
 	}
 }
 

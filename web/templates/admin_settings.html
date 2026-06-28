@@ -66,6 +66,7 @@
     <div class="card-body">
         <h5 class="card-title">Site Branding</h5>
         <form action="/-/admin/site-settings" method="post">
+{{template "csrfField" $.csrf_token}}
             <div class="form-group">
                 <label for="site_name">Site Name</label>
                 <input type="text" name="site_name" id="site_name" class="form-control"
@@ -94,6 +95,7 @@
     <div class="card-body">
         <h5 class="card-title">Issue Tracker Settings</h5>
         <form action="/-/admin/issue-settings" method="post">
+{{template "csrfField" $.csrf_token}}
             <div class="form-group">
                 <label for="issue_categories">Categories (Mutually Exclusive)</label>
                 <input type="text" name="issue_categories" id="issue_categories" class="form-control"

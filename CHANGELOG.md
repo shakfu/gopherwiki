@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.1.1]
+
+### Security
+
+- **Content-Security-Policy and security headers**: Every response now carries `Content-Security-Policy`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, and `Referrer-Policy`. The CSP uses a strict `script-src 'self'` (no `unsafe-inline`, no `unsafe-eval`); `style-src` retains `'unsafe-inline'` only because MathJax/Mermaid inject styles at runtime.
+- **Self-hosted MathJax and Mermaid**: These libraries are now served from `/static/` instead of a third-party CDN (`cdn.jsdelivr.net`), removing a per-reader IP/referrer leak, enabling air-gapped deployments, and allowing the strict CSP above.
+- **Stored XSS in search snippets fixed**: FTS snippets are HTML-escaped before the `<mark>` highlight markers are restored, so page content containing markup (e.g. `<img onerror=...>`) can no longer execute when shown in search results.
+- **SVG/active-content attachments forced to download**: Non-raster attachments (notably SVG) are served with `Content-Disposition: attachment` and `nosniff` so they cannot execute script in the wiki origin.
+- **Upload filename sanitization**: Attachment filenames are reduced to their base name and reject empty/`.`/`..`/separator/null-byte values, preventing path traversal or overwriting page files.
+- **Login open-redirect fixed**: The `next` parameter is now accepted only as a local (single-leading-slash) path; off-site and protocol-relative targets fall back to `/`.
+- **Secure session cookies**: New `COOKIE_SECURE` setting (auto-enabled when `SITE_URL` is `https://`, forced off in dev) marks the session cookie `Secure`.
+- **Login timing oracle removed**: Authentication performs a constant dummy bcrypt comparison when the email is unknown, so response time no longer reveals whether an account exists.
+- **CSRF protection**: State-changing requests (POST/PUT/DELETE) require a per-session CSRF token, supplied via a hidden form field or the `X-CSRF-Token` header. Logout is now a POST.
+- **Hardened development mode**: `DEV_MODE` generates a random per-process session key instead of a shared hardcoded one, and refuses to bind to non-loopback interfaces.
+
+### Fixed
+
+- **Math rendering was broken**: `` ```math `` blocks rendered as plain code (MathJax skips `<pre>`/`<code>`) and inline `\(...\)` lost its backslashes to Markdown escaping before MathJax ran, so no math displayed. Display blocks are now rewritten into `\[...\]` inside a `<div>` (mirroring the Mermaid handling) and a goldmark inline extension preserves `\(...\)` / single-line `\[...\]`. Inline math now also flags the page as needing MathJax.
+- **Draft autosave accumulated duplicate rows**: `UpsertDraft` had no real conflict target and the `drafts` table lacked a unique index, so every autosave inserted a new row and the editor could reload stale content. Added a unique index on `(pagepath, author_email)` (with a de-duplicating migration) and a proper upsert.
+- **No panic recovery or server timeouts**: Added `Recoverer` middleware and `ReadHeaderTimeout`/`ReadTimeout`/`IdleTimeout` on the HTTP server.
+
+### Changed
+
+- **Inline scripts and event handlers removed**: All inline `on*` handlers and the editor's inline `<script>` were moved to external files (`gopherwiki-actions.js`, `editor-page.js`) using delegated listeners and `data-*` attributes, enabling the strict CSP.
+
 ### Added
 
 - **Navbar search dropdown**: Live search results appear in a dropdown below the navbar search input as you type (HTMX, 300ms debounce, up to 8 results). Supports click-outside and Escape to dismiss. Links to full search page via "View all results" footer.
@@ -21,7 +46,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - **`SQLALCHEMY_DATABASE_URI` fallback**: Legacy Python env var is no longer supported. Use `DATABASE_URI` instead.
 - **Redundant `REPOSITORY` fallback in main.go**: The env var is already loaded via `config.LoadFromEnv()`.
 
-## [v0.1.0] - 2026-02-05
+## [0.1.0]
 
 ### Initial Release
 

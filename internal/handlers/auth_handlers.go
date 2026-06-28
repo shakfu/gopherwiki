@@ -3,10 +3,23 @@ package handlers
 import (
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/sa/gopherwiki/internal/auth"
 	"github.com/sa/gopherwiki/internal/middleware"
 )
+
+// safeRedirectPath returns next only if it is a same-origin, absolute path
+// ("/foo"), guarding against open redirects. Off-site targets ("//evil.com",
+// "https://evil.com"), protocol-relative ("/\evil.com"), and empty values fall
+// back to "/".
+func safeRedirectPath(next string) string {
+	if next == "" || next[0] != '/' ||
+		strings.HasPrefix(next, "//") || strings.HasPrefix(next, "/\\") {
+		return "/"
+	}
+	return next
+}
 
 // handleLogin handles the login page.
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -17,10 +30,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	next := r.URL.Query().Get("next")
-	if next == "" {
-		next = "/"
-	}
+	next := safeRedirectPath(r.URL.Query().Get("next"))
 
 	data := NewGenericData("Login")
 	data["next"] = next
@@ -36,10 +46,7 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 
 	email := r.FormValue("email")
 	password := r.FormValue("password")
-	next := r.FormValue("next")
-	if next == "" {
-		next = "/"
-	}
+	next := safeRedirectPath(r.FormValue("next"))
 
 	user, err := s.Auth.Authenticate(r.Context(), email, password)
 	if err != nil {

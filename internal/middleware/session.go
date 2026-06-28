@@ -3,6 +3,9 @@ package middleware
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/base64"
 	"encoding/gob"
 	"log/slog"
 	"net/http"
@@ -29,6 +32,8 @@ const (
 	SessionKey contextKey = "session"
 	// FlashKey is the context key for flash messages.
 	FlashKey contextKey = "flash"
+	// CSRFContextKey is the context key for the current CSRF token.
+	CSRFContextKey contextKey = "csrf"
 )
 
 const (
@@ -36,28 +41,56 @@ const (
 	SessionName = "gopherwiki_session"
 	// UserIDKey is the session key for the user ID.
 	UserIDKey = "user_id"
+	// CSRFCookieName is the cookie holding the CSRF token (double-submit pattern).
+	CSRFCookieName = "gopherwiki_csrf"
+	// CSRFFieldName is the form field carrying the CSRF token.
+	CSRFFieldName = "csrf_token"
+	// CSRFHeaderName is the request header carrying the CSRF token (for fetch/XHR/API).
+	CSRFHeaderName = "X-CSRF-Token"
 )
+
+// csrfSafeMethods are HTTP methods that do not require a CSRF token.
+var csrfSafeMethods = map[string]bool{
+	http.MethodGet:     true,
+	http.MethodHead:    true,
+	http.MethodOptions: true,
+	http.MethodTrace:   true,
+}
+
+// generateCSRFToken returns a new random CSRF token, or "" if entropy is
+// unavailable (in which case CSRF validation fails closed).
+func generateCSRFToken() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
+}
 
 // SessionManager handles session operations.
 type SessionManager struct {
 	store   sessions.Store
 	queries *db.Queries
+	secure  bool
 }
 
-// NewSessionManager creates a new SessionManager.
-func NewSessionManager(secretKey string, queries *db.Queries) *SessionManager {
+// NewSessionManager creates a new SessionManager. When secure is true the
+// session and CSRF cookies are marked Secure (only sent over HTTPS).
+func NewSessionManager(secretKey string, secure bool, queries *db.Queries) *SessionManager {
 	// Create cookie store with the secret key
 	store := sessions.NewCookieStore([]byte(secretKey))
 	store.Options = &sessions.Options{
 		Path:     "/",
 		MaxAge:   86400 * 30, // 30 days
 		HttpOnly: true,
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 	}
 
 	return &SessionManager{
 		store:   store,
 		queries: queries,
+		secure:  secure,
 	}
 }
 
@@ -92,6 +125,27 @@ func (sm *SessionManager) Middleware(next http.Handler) http.Handler {
 		ctx := context.WithValue(r.Context(), SessionKey, session)
 		ctx = context.WithValue(ctx, UserKey, user)
 
+		// Ensure a CSRF token exists in its own cookie (double-submit pattern).
+		// Keeping it separate from the gorilla session avoids a competing
+		// Set-Cookie when a handler also saves the session in the same request.
+		csrfToken := ""
+		if c, err := r.Cookie(CSRFCookieName); err == nil {
+			csrfToken = c.Value
+		}
+		if csrfToken == "" {
+			csrfToken = generateCSRFToken()
+			http.SetCookie(w, &http.Cookie{
+				Name:     CSRFCookieName,
+				Value:    csrfToken,
+				Path:     "/",
+				MaxAge:   86400 * 30, // 30 days
+				HttpOnly: true,
+				Secure:   sm.secure,
+				SameSite: http.SameSiteLaxMode,
+			})
+		}
+		ctx = context.WithValue(ctx, CSRFContextKey, csrfToken)
+
 		// Get flash messages and add to context
 		flashes := session.Flashes()
 		if len(flashes) > 0 {
@@ -101,6 +155,42 @@ func (sm *SessionManager) Middleware(next http.Handler) http.Handler {
 		}
 
 		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// GetCSRFToken returns the CSRF token for the current request, or "".
+func GetCSRFToken(r *http.Request) string {
+	if t, ok := r.Context().Value(CSRFContextKey).(string); ok {
+		return t
+	}
+	return ""
+}
+
+// CSRFProtect rejects state-changing requests (POST/PUT/DELETE/PATCH) that do
+// not present the session's CSRF token, supplied either in the CSRFFieldName
+// form field or the CSRFHeaderName header. It must run after Middleware so the
+// token is present in the request context. Comparison is constant-time.
+func (sm *SessionManager) CSRFProtect(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if csrfSafeMethods[r.Method] {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		expected := GetCSRFToken(r)
+		got := r.Header.Get(CSRFHeaderName)
+		if got == "" {
+			// FormValue parses the body only for form content types, so JSON
+			// API bodies are left intact for the handler to read.
+			got = r.FormValue(CSRFFieldName)
+		}
+
+		if expected == "" || subtle.ConstantTimeCompare([]byte(got), []byte(expected)) != 1 {
+			http.Error(w, "Forbidden - invalid or missing CSRF token", http.StatusForbidden)
+			return
+		}
+
+		next.ServeHTTP(w, r.WithContext(r.Context()))
 	})
 }
 

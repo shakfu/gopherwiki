@@ -3,8 +3,10 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	_ "embed"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -84,6 +86,17 @@ func fatal(msg string, args ...any) {
 	os.Exit(1)
 }
 
+// isLoopbackHost reports whether host binds only to the local machine. An empty
+// host means "all interfaces" and is therefore not loopback.
+func isLoopbackHost(host string) bool {
+	switch host {
+	case "127.0.0.1", "::1", "localhost":
+		return true
+	default:
+		return false
+	}
+}
+
 //go:embed syntax_guide.md
 var syntaxGuideContent string
 
@@ -140,12 +153,25 @@ func main() {
 		}
 	}
 
-	// In dev mode, relax the SECRET_KEY requirement
+	// In dev mode, relax the SECRET_KEY requirement and prevent accidental
+	// network exposure.
 	if cfg.DevMode {
 		slog.Warn("DEV_MODE is enabled, do NOT use in production")
 		if cfg.SecretKey == "CHANGE ME" || len(cfg.SecretKey) < 16 {
-			cfg.SecretKey = "dev-mode-insecure-key-not-for-production"
-			slog.Warn("using auto-generated development secret key")
+			// Generate an ephemeral per-process key rather than a shared,
+			// world-known constant: a leaked DEV_MODE in production must not
+			// let anyone forge a signed session cookie. Sessions reset on restart.
+			keyBytes := make([]byte, 32)
+			if _, err := rand.Read(keyBytes); err != nil {
+				fatal("failed to generate development secret key", "error", err)
+			}
+			cfg.SecretKey = hex.EncodeToString(keyBytes)
+			slog.Warn("using ephemeral random development secret key (sessions reset on restart)")
+		}
+		// Refuse to serve dev mode on a non-loopback interface.
+		if !isLoopbackHost(cfg.Host) {
+			slog.Warn("DEV_MODE forces binding to loopback", "requested_host", cfg.Host)
+			cfg.Host = "127.0.0.1"
 		}
 	}
 
@@ -300,7 +326,17 @@ Enjoy your wiki!
 
 	// Start server with graceful shutdown
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
-	srv := &http.Server{Addr: addr, Handler: router}
+	srv := &http.Server{
+		Addr:    addr,
+		Handler: router,
+		// ReadHeaderTimeout bounds slow-header (Slowloris) attacks. ReadTimeout
+		// is generous to allow large attachment uploads on slow links.
+		// WriteTimeout is intentionally left unset so large attachment downloads
+		// on slow connections are not truncated.
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       5 * time.Minute,
+		IdleTimeout:       120 * time.Second,
+	}
 
 	go func() {
 		displayHost := cfg.Host

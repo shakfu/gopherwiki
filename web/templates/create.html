@@ -2,6 +2,7 @@
 <h1>Create a new page</h1>
 
 <form action="/-/create" method="post">
+{{template "csrfField" $.csrf_token}}
     <div class="form-group">
         <label for="pagepath">Page name</label>
         <input type="text" name="pagepath" id="pagepath" class="form-control" placeholder="Enter page name" required>

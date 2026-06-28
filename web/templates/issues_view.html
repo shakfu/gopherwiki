@@ -28,16 +28,19 @@
         <a href="/-/issues/{{.issue.ID}}/edit" class="btn btn-sm btn-outline-primary">Edit</a>
         {{if eq .issue.Status "open"}}
         <form action="/-/issues/{{.issue.ID}}/close" method="post" class="d-inline">
+{{template "csrfField" $.csrf_token}}
             <button type="submit" class="btn btn-sm btn-outline-secondary">Close Issue</button>
         </form>
         {{else}}
         <form action="/-/issues/{{.issue.ID}}/reopen" method="post" class="d-inline">
+{{template "csrfField" $.csrf_token}}
             <button type="submit" class="btn btn-sm btn-outline-success">Reopen Issue</button>
         </form>
         {{end}}
         {{end}}
         {{if .canDelete}}
-        <form action="/-/issues/{{.issue.ID}}/delete" method="post" class="d-inline" onsubmit="return confirm('Are you sure you want to delete this issue?');">
+        <form action="/-/issues/{{.issue.ID}}/delete" method="post" class="d-inline" data-confirm="Are you sure you want to delete this issue?">
+{{template "csrfField" $.csrf_token}}
             <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
         </form>
         {{end}}
@@ -78,7 +81,8 @@
                 commented {{formatDatetime .Comment.CreatedAt.Time "relative"}}
             </small>
             {{if $.canDelete}}
-            <form action="/-/issues/{{$.issue.ID}}/comment/{{.Comment.ID}}/delete" method="post" class="d-inline" onsubmit="return confirm('Delete this comment?');">
+            <form action="/-/issues/{{$.issue.ID}}/comment/{{.Comment.ID}}/delete" method="post" class="d-inline" data-confirm="Delete this comment?">
+{{template "csrfField" $.csrf_token}}
                 <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete comment"><i class="fas fa-trash-alt"></i></button>
             </form>
             {{end}}
@@ -98,6 +102,7 @@
 <div class="card mt-3 mb-3">
     <div class="card-body">
         <form action="/-/issues/{{.issue.ID}}/comment" method="post">
+{{template "csrfField" $.csrf_token}}
             <div class="form-group">
                 <label for="comment-content">Add a comment</label>
                 <textarea class="form-control" id="comment-content" name="content" rows="4" required></textarea>

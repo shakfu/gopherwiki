@@ -6,6 +6,7 @@
 </div>
 
 <form action="/{{.pagepath}}/delete" method="post">
+{{template "csrfField" $.csrf_token}}
     <div class="form-group">
         <label for="message">Commit message (optional)</label>
         <input type="text" name="message" id="message" class="form-control" placeholder="Delete {{.pagename}}">

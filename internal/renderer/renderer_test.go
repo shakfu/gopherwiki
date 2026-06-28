@@ -7,6 +7,53 @@ import (
 	"github.com/sa/gopherwiki/internal/config"
 )
 
+func TestRenderInlineMath(t *testing.T) {
+	r := New(config.Default())
+
+	html, _, req := r.Render(`Pythagoras: \(a^2 + b^2 = c^2\)`, "/test")
+	if !strings.Contains(html, `\(a^2 + b^2 = c^2\)`) {
+		t.Errorf("inline math delimiters not preserved, got: %s", html)
+	}
+	if !req.RequiresMathJax {
+		t.Error("RequiresMathJax should be true when inline math is present")
+	}
+
+	// Single-line display delimiters \[...\] are also preserved.
+	html, _, _ = r.Render(`Area \[\pi r^2\]`, "/test")
+	if !strings.Contains(html, `\[\pi r^2\]`) {
+		t.Errorf("display math delimiters not preserved, got: %s", html)
+	}
+}
+
+func TestRenderMathBlock(t *testing.T) {
+	r := New(config.Default())
+
+	html, _, req := r.Render("```math\nE = mc^2\n```", "/test")
+	if !req.RequiresMathJax {
+		t.Error("RequiresMathJax should be true for a ```math block")
+	}
+	if !strings.Contains(html, `<div class="math-display">`) || !strings.Contains(html, `\[`) {
+		t.Errorf("math block not converted to display math, got: %s", html)
+	}
+	if strings.Contains(html, `language-math`) {
+		t.Errorf("math block should not remain a code block, got: %s", html)
+	}
+}
+
+func TestRenderBackslashEscapeStillWorks(t *testing.T) {
+	r := New(config.Default())
+
+	// A non-math backslash escape must still behave as a normal escape and not
+	// be swallowed by the math parser.
+	html, _, req := r.Render(`\*not bold\*`, "/test")
+	if strings.Contains(html, "<em>") || strings.Contains(html, "<strong>") {
+		t.Errorf("escaped asterisks should not produce emphasis, got: %s", html)
+	}
+	if req.RequiresMathJax {
+		t.Error("plain escaped text should not require MathJax")
+	}
+}
+
 func TestRenderBasicMarkdown(t *testing.T) {
 	cfg := config.Default()
 	r := New(cfg)

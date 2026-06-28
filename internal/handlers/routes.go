@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 )
 
 // RouteInfo describes a named route for URL generation.
@@ -69,8 +70,22 @@ func URLFor(name string, args ...string) string {
 func (s *Server) Routes() chi.Router {
 	r := chi.NewRouter()
 
+	// Recover from handler panics so a single bad request cannot take down
+	// the connection (or the process). Outermost so it wraps everything.
+	r.Use(middleware.Recoverer)
+
+	// Baseline security headers on every response.
+	r.Use(securityHeaders)
+
 	// Session middleware (adds user to context)
 	r.Use(s.SessionManager.Middleware)
+
+	// CSRF protection on state-changing requests. Disabled under Testing so the
+	// existing handler tests need not perform the token dance; covered directly
+	// by middleware-level tests.
+	if !s.Config.Testing {
+		r.Use(s.SessionManager.CSRFProtect)
+	}
 
 	// Static files (with long-lived cache headers)
 	staticHandler := http.StripPrefix("/static/", http.FileServer(http.FS(s.StaticFS)))
@@ -81,7 +96,7 @@ func (s *Server) Routes() chi.Router {
 		// Public routes (no permission required)
 		r.Get("/login", s.handleLogin)
 		r.Post("/login", s.handleLoginPost)
-		r.Get("/logout", s.handleLogout)
+		r.Post("/logout", s.handleLogout)
 		r.Get("/register", s.handleRegister)
 		r.Post("/register", s.handleRegisterPost)
 		r.Get("/health", s.handleHealthCheck)
@@ -224,6 +239,45 @@ func (s *Server) Routes() chi.Router {
 	})
 
 	return r
+}
+
+// contentSecurityPolicy restricts where resources may be loaded from.
+//
+// All first-party assets (including the self-hosted MathJax and Mermaid bundles)
+// are same-origin, and every script lives in an external file -- inline on*
+// handlers and inline <script> blocks were removed in favour of delegated
+// listeners (gopherwiki-actions.js) and externalized page scripts. That lets
+// script-src be a strict 'self' with no 'unsafe-inline' and no 'unsafe-eval'
+// (verified: app JS has no eval/Function; htmx uses no expression-filter
+// triggers; MathJax's only `new Function` is a dead globalThis polyfill).
+//   - style-src keeps 'unsafe-inline' because MathJax/Mermaid inject <style>
+//     elements at runtime and several templates use inline style attributes;
+//     CSP cannot nonce runtime-injected styles, so this one is unavoidable.
+//   - img-src is permissive so wiki pages may embed external images; data:/blob:
+//     cover MathJax/Mermaid and editor previews.
+//   - default-src 'self' also constrains connect-src, so an injected script
+//     (were one to slip past script-src) could not exfiltrate to a foreign
+//     origin via fetch/XHR/beacon.
+const contentSecurityPolicy = "default-src 'self'; " +
+	"script-src 'self'; " +
+	"style-src 'self' 'unsafe-inline'; " +
+	"img-src 'self' data: blob: https: http:; " +
+	"font-src 'self'; " +
+	"object-src 'none'; " +
+	"base-uri 'self'; " +
+	"form-action 'self'; " +
+	"frame-ancestors 'self'"
+
+// securityHeaders sets baseline security response headers on every request.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "SAMEORIGIN")
+		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		h.Set("Content-Security-Policy", contentSecurityPolicy)
+		next.ServeHTTP(w, r)
+	})
 }
 
 // staticCacheHandler wraps a handler to add Cache-Control headers for static assets.

@@ -15,6 +15,7 @@
 <h1>{{if .isEdit}}Edit Issue #{{.issue.ID}}{{else}}New Issue{{end}}</h1>
 
 <form action="{{if .isEdit}}/-/issues/{{.issue.ID}}/edit{{else}}/-/issues/new{{end}}" method="post">
+{{template "csrfField" $.csrf_token}}
     <div class="form-group">
         <label for="title">Title</label>
         <input type="text" name="title" id="title" class="form-control"

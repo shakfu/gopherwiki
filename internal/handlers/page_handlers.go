@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -109,9 +110,15 @@ func (s *Server) serveAttachment(w http.ResponseWriter, r *http.Request, filepat
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(content)))
 	w.Header().Set("Cache-Control", "public, max-age=3600")
+	// Never let the browser MIME-sniff an attachment into something executable.
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 
-	// For images and PDFs, allow inline display; for others, suggest download
-	if !strings.HasPrefix(contentType, "image/") && contentType != "application/pdf" {
+	// Allow inline display only for raster images and PDFs. SVG is excluded
+	// because it can carry executable script and would run in the wiki origin;
+	// everything else is forced to download.
+	inline := (strings.HasPrefix(contentType, "image/") && contentType != "image/svg+xml") ||
+		contentType == "application/pdf"
+	if !inline {
 		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 	}
 
@@ -420,6 +427,17 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 	}
 	defer file.Close()
 
+	// Sanitize the client-supplied filename: strip any directory components and
+	// reject names that could escape the attachment directory or overwrite
+	// pages (e.g. "../Home.md"). filepath.Base collapses traversal to the final
+	// path element; the explicit checks reject the residual dangerous names.
+	filename := filepath.Base(header.Filename)
+	if filename == "" || filename == "." || filename == ".." ||
+		strings.ContainsAny(filename, `/\`+"\x00") {
+		s.renderError(w, r, http.StatusBadRequest, "Invalid filename")
+		return
+	}
+
 	// Read file content
 	content, err := io.ReadAll(file)
 	if err != nil {
@@ -437,11 +455,11 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 
 	message := r.FormValue("message")
 	if message == "" {
-		message = "Added " + header.Filename
+		message = "Added " + filename
 	}
 
 	// Save attachment
-	attachmentPath := page.AttachmentDirectoryname + "/" + header.Filename
+	attachmentPath := page.AttachmentDirectoryname + "/" + filename
 	_, err = s.Storage.StoreBytes(attachmentPath, content, message, author)
 	if err != nil {
 		s.renderError(w, r, http.StatusInternalServerError, "Failed to save file: "+err.Error())

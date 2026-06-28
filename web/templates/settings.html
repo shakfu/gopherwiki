@@ -13,6 +13,7 @@
     <div class="card-body">
         <h5 class="card-title">Profile</h5>
         <form action="{{urlFor "settings"}}" method="post">
+{{template "csrfField" $.csrf_token}}
             <input type="hidden" name="action" value="update_name">
             <div class="form-group">
                 <label for="name">Display Name</label>
@@ -32,6 +33,7 @@
     <div class="card-body">
         <h5 class="card-title">Change Password</h5>
         <form action="{{urlFor "settings"}}" method="post">
+{{template "csrfField" $.csrf_token}}
             <input type="hidden" name="action" value="change_password">
             <div class="form-group">
                 <label for="current_password">Current Password</label>

@@ -60,9 +60,14 @@ func New(cfg *config.Config) *Renderer {
 			langStr := string(lang)
 
 			if entering {
-				// Skip wrapper for mermaid blocks - they need special handling
+				// Skip the copy-to-clipboard wrapper for mermaid and math
+				// blocks - they are post-processed into renderable elements.
 				if langStr == "mermaid" {
 					w.WriteString(`<pre><code class="language-mermaid">`)
+					return
+				}
+				if langStr == "math" {
+					w.WriteString(`<pre><code class="language-math">`)
 					return
 				}
 				w.WriteString(`<div class="copy-to-clipboard-outer"><div class="copy-to-clipboard-inner"><button class="btn alt-dm btn-xsm copy-to-clipboard" type="button" onclick="gopherwiki.copy_to_clipboard(this);"><i class="fa fa-copy" aria-hidden="true" alt="Copy to clipboard"></i></button></div><pre class="copy-to-clipboard code highlight">`)
@@ -72,7 +77,7 @@ func New(cfg *config.Config) *Renderer {
 					w.WriteString(`<code>`)
 				}
 			} else {
-				if langStr == "mermaid" {
+				if langStr == "mermaid" || langStr == "math" {
 					w.WriteString(`</code></pre>`)
 					return
 				}
@@ -90,6 +95,7 @@ func New(cfg *config.Config) *Renderer {
 			&IssueRefExtension{},
 			&WikiLinkExtension{},
 			&MarkExtension{},
+			&MathInlineExtension{},
 		),
 		goldmark.WithParserOptions(
 			parser.WithAutoHeadingID(),
@@ -114,6 +120,7 @@ var (
 	slugNonAlphanumRegex = regexp.MustCompile(`[^a-z0-9\-]`)
 	slugMultiHyphenRegex = regexp.MustCompile(`-+`)
 	mermaidBlockRegex    = regexp.MustCompile(`<pre><code class="language-mermaid">([\s\S]*?)</code></pre>`)
+	mathBlockRegex       = regexp.MustCompile(`<pre><code class="language-math">([\s\S]*?)</code></pre>`)
 	wikiLinkRegex        = regexp.MustCompile(`\[\[([^\]]+)\]\]`)
 )
 
@@ -148,6 +155,10 @@ func (r *Renderer) Render(source string, pageURL string) (string, []TOCEntry, Li
 				requirements.RequiresMathJax = true
 			}
 		}
+		// Inline math (\(...\) or \[...\]) also needs MathJax.
+		if _, ok := n.(*MathInline); ok {
+			requirements.RequiresMathJax = true
+		}
 		return ast.WalkContinue, nil
 	})
 
@@ -159,10 +170,18 @@ func (r *Renderer) Render(source string, pageURL string) (string, []TOCEntry, Li
 
 	htmlContent := buf.String()
 
-	// Post-process for mermaid blocks
+	// Post-process for mermaid and math blocks
 	htmlContent = processMermaidBlocks(htmlContent)
+	htmlContent = processMathBlocks(htmlContent)
 
 	return htmlContent, toc, requirements
+}
+
+// processMathBlocks converts ```math fenced code blocks into MathJax display
+// math. MathJax skips <pre>/<code> by default, so the block is rewritten into a
+// <div> carrying \[...\] delimiters that MathJax will typeset.
+func processMathBlocks(htmlContent string) string {
+	return mathBlockRegex.ReplaceAllString(htmlContent, `<div class="math-display">\[$1\]</div>`)
 }
 
 // extractTOC extracts the table of contents from headings.
@@ -456,6 +475,92 @@ func (r *markRenderer) renderMark(w util.BufWriter, source []byte, n ast.Node, e
 	} else {
 		w.WriteString("</mark>")
 	}
+	return ast.WalkContinue, nil
+}
+
+// MathInlineExtension adds inline math support for \(...\) and single-line
+// \[...\]. goldmark would otherwise treat the leading backslash as an escape
+// and drop the delimiters before MathJax could see them; this preserves them so
+// MathJax typesets the expression. Multi-line display math uses ```math blocks.
+type MathInlineExtension struct{}
+
+func (e *MathInlineExtension) Extend(m goldmark.Markdown) {
+	m.Parser().AddOptions(
+		parser.WithInlineParsers(
+			util.Prioritized(&mathInlineParser{}, 150),
+		),
+	)
+	m.Renderer().AddOptions(
+		renderer.WithNodeRenderers(
+			util.Prioritized(&mathInlineRenderer{}, 150),
+		),
+	)
+}
+
+// KindMathInline is the AST node kind for inline math.
+var KindMathInline = ast.NewNodeKind("MathInline")
+
+// MathInline is an inline math span carrying its delimiters and content.
+type MathInline struct {
+	ast.BaseInline
+	Open    byte // '(' or '['
+	Close   byte // ')' or ']'
+	Content []byte
+}
+
+func (n *MathInline) Kind() ast.NodeKind { return KindMathInline }
+
+func (n *MathInline) Dump(source []byte, level int) {
+	ast.DumpHelper(n, source, level, map[string]string{"Content": string(n.Content)}, nil)
+}
+
+type mathInlineParser struct{}
+
+func (p *mathInlineParser) Trigger() []byte { return []byte{'\\'} }
+
+func (p *mathInlineParser) Parse(parent ast.Node, block text.Reader, pc parser.Context) ast.Node {
+	line, _ := block.PeekLine()
+	if len(line) < 4 || line[0] != '\\' {
+		return nil
+	}
+	var closeCh byte
+	switch line[1] {
+	case '(':
+		closeCh = ')'
+	case '[':
+		closeCh = ']'
+	default:
+		return nil // not math; let the default escape handling run
+	}
+
+	end := bytes.Index(line[2:], []byte{'\\', closeCh})
+	if end < 0 {
+		return nil
+	}
+
+	content := make([]byte, end)
+	copy(content, line[2:2+end])
+	block.Advance(2 + end + 2) // \( + content + \)
+
+	return &MathInline{Open: line[1], Close: closeCh, Content: content}
+}
+
+type mathInlineRenderer struct{}
+
+func (r *mathInlineRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
+	reg.Register(KindMathInline, r.render)
+}
+
+func (r *mathInlineRenderer) render(w util.BufWriter, source []byte, n ast.Node, entering bool) (ast.WalkStatus, error) {
+	if !entering {
+		return ast.WalkContinue, nil
+	}
+	mi := n.(*MathInline)
+	_ = w.WriteByte('\\')
+	_ = w.WriteByte(mi.Open)
+	_, _ = w.Write(util.EscapeHTML(mi.Content))
+	_ = w.WriteByte('\\')
+	_ = w.WriteByte(mi.Close)
 	return ast.WalkContinue, nil
 }
 

@@ -9,6 +9,8 @@ gopherwiki
 *.so
 *.dylib
 
+REVIEW.md
+
 # Test binary, built with `go test -c`
 *.test
 

@@ -16,6 +16,7 @@
 <div class="card">
     <div class="card-body">
         <form action="/-/admin/users/{{.edit_user.ID}}" method="post">
+{{template "csrfField" $.csrf_token}}
             <div class="form-group">
                 <label for="name">Name</label>
                 <input type="text" name="name" id="name" class="form-control" value="{{.edit_user.GetName}}" required>
@@ -69,7 +70,8 @@
 <div class="card border-danger">
     <div class="card-body">
         <h5 class="card-title text-danger">Danger Zone</h5>
-        <form action="/-/admin/users/{{.edit_user.ID}}/delete" method="post" onsubmit="return confirm('Are you sure you want to delete this user?');">
+        <form action="/-/admin/users/{{.edit_user.ID}}/delete" method="post" data-confirm="Are you sure you want to delete this user?">
+{{template "csrfField" $.csrf_token}}
             <button type="submit" class="btn btn-danger">Delete User</button>
         </form>
     </div>

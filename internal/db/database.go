@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"html"
 	"log/slog"
 	"strings"
 	"time"
@@ -224,6 +225,21 @@ var migrations = []migration{
 			`CREATE INDEX IF NOT EXISTS idx_drafts_pagepath_author ON drafts(pagepath, author_email)`)
 		return err
 	}},
+	{6, "enforce one draft per page+author", func(ctx context.Context, conn *sql.DB) error {
+		// De-duplicate any drafts accumulated before UpsertDraft had a real
+		// conflict target, keeping only the most recent row (highest id) per
+		// (pagepath, author_email). Then enforce uniqueness so UpsertDraft can
+		// update in place instead of inserting duplicates.
+		if _, err := conn.ExecContext(ctx,
+			`DELETE FROM drafts WHERE id NOT IN (
+				SELECT MAX(id) FROM drafts GROUP BY pagepath, author_email
+			)`); err != nil {
+			return err
+		}
+		_, err := conn.ExecContext(ctx,
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_drafts_page_author ON drafts(pagepath, author_email)`)
+		return err
+	}},
 }
 
 // runMigrations runs versioned schema migrations, tracking progress
@@ -306,15 +322,26 @@ type PageIndexData struct {
 	Content  string
 }
 
+// Sentinel control characters mark the boundaries of a search hit inside the
+// snippet. They are substituted for real <mark> tags only after the snippet
+// (which contains raw, attacker-controlled page text) has been HTML-escaped, so
+// embedded markup such as <img onerror=...> cannot execute when rendered.
+const (
+	snippetMarkOpen  = "\x02" // STX
+	snippetMarkClose = "\x03" // ETX
+)
+
 // SearchPages searches the FTS5 index and returns ranked results with snippets.
 func (d *Database) SearchPages(ctx context.Context, query string, limit int) ([]PageSearchResult, error) {
 	rows, err := d.conn.QueryContext(ctx,
-		`SELECT pagepath, title, snippet(page_fts, 2, '<mark>', '</mark>', '...', 40) as snippet, rank FROM page_fts WHERE page_fts MATCH ? ORDER BY rank LIMIT ?`,
+		`SELECT pagepath, title, snippet(page_fts, 2, char(2), char(3), '...', 40) as snippet, rank FROM page_fts WHERE page_fts MATCH ? ORDER BY rank LIMIT ?`,
 		query, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+
+	markReplacer := strings.NewReplacer(snippetMarkOpen, "<mark>", snippetMarkClose, "</mark>")
 
 	var results []PageSearchResult
 	for rows.Next() {
@@ -322,6 +349,9 @@ func (d *Database) SearchPages(ctx context.Context, query string, limit int) ([]
 		if err := rows.Scan(&r.Pagepath, &r.Title, &r.Snippet, &r.Rank); err != nil {
 			return nil, err
 		}
+		// Escape the raw snippet text, then restore the highlight markers as
+		// the only HTML the template will trust via safeHTML.
+		r.Snippet = markReplacer.Replace(html.EscapeString(r.Snippet))
 		results = append(results, r)
 	}
 	return results, rows.Err()

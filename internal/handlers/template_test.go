@@ -45,7 +45,7 @@ func TestURLForRouteSync(t *testing.T) {
 		// Static routes
 		{name: "index"},
 		{name: "login"},
-		{name: "logout"},
+		{name: "logout", method: "POST"},
 		{name: "register"},
 		{name: "settings"},
 		{name: "search"},

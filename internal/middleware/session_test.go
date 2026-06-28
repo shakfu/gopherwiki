@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -52,7 +54,86 @@ func createTestUser(t *testing.T, database *db.Database, name, email string) int
 
 func newTestSessionManager(t *testing.T, database *db.Database) *SessionManager {
 	t.Helper()
-	return NewSessionManager("test-secret-key-for-tests", database.Queries)
+	return NewSessionManager("test-secret-key-for-tests", false, database.Queries)
+}
+
+// --- CSRF tests ---
+
+func TestCSRFProtect(t *testing.T) {
+	database := openTestDB(t)
+	sm := newTestSessionManager(t, database)
+
+	final := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Echo the token so a GET can hand it back to the test.
+		w.Write([]byte(GetCSRFToken(r)))
+	})
+	h := sm.Middleware(sm.CSRFProtect(final))
+
+	// A GET issues a session cookie and a CSRF token.
+	gw := httptest.NewRecorder()
+	h.ServeHTTP(gw, httptest.NewRequest("GET", "/", nil))
+	if gw.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, want 200", gw.Code)
+	}
+	token := gw.Body.String()
+	if token == "" {
+		t.Fatal("expected a non-empty CSRF token from GET")
+	}
+	cookies := gw.Result().Cookies()
+
+	post := func(setup func(r *http.Request)) int {
+		r := httptest.NewRequest("POST", "/", nil)
+		for _, c := range cookies {
+			r.AddCookie(c)
+		}
+		setup(r)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w.Code
+	}
+
+	t.Run("valid token in header", func(t *testing.T) {
+		if code := post(func(r *http.Request) { r.Header.Set(CSRFHeaderName, token) }); code != http.StatusOK {
+			t.Errorf("status = %d, want 200", code)
+		}
+	})
+
+	t.Run("missing token rejected", func(t *testing.T) {
+		if code := post(func(r *http.Request) {}); code != http.StatusForbidden {
+			t.Errorf("status = %d, want 403", code)
+		}
+	})
+
+	t.Run("wrong token rejected", func(t *testing.T) {
+		if code := post(func(r *http.Request) { r.Header.Set(CSRFHeaderName, "not-the-token") }); code != http.StatusForbidden {
+			t.Errorf("status = %d, want 403", code)
+		}
+	})
+
+	t.Run("valid token in form field", func(t *testing.T) {
+		r := httptest.NewRequest("POST", "/", strings.NewReader(url.Values{CSRFFieldName: {token}}.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		for _, c := range cookies {
+			r.AddCookie(c)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != http.StatusOK {
+			t.Errorf("status = %d, want 200", w.Code)
+		}
+	})
+
+	t.Run("GET is exempt", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest("GET", "/", nil)
+		for _, c := range cookies {
+			r.AddCookie(c)
+		}
+		h.ServeHTTP(w, r)
+		if w.Code != http.StatusOK {
+			t.Errorf("GET status = %d, want 200", w.Code)
+		}
+	})
 }
 
 // --- NewSessionManager tests ---

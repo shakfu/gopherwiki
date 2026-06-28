@@ -48,7 +48,7 @@ type Server struct {
 func NewServer(cfg *config.Config, store storage.Storage, database *db.Database, version string) (*Server, error) {
 	rend := renderer.New(cfg)
 	authService := auth.New(cfg, database.Queries)
-	sessionManager := middleware.NewSessionManager(cfg.SecretKey, database.Queries)
+	sessionManager := middleware.NewSessionManager(cfg.SecretKey, cfg.SecureCookie, database.Queries)
 	permChecker := middleware.NewPermissionChecker(cfg, sessionManager)
 
 	wikiService := wiki.NewWikiService(store, cfg, database)
@@ -124,6 +124,7 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name str
 	// Add common context
 	data["config"] = s.Config
 	data["Version"] = s.Version
+	data["csrf_token"] = middleware.GetCSRFToken(r)
 
 	// Add site settings (from preferences or config)
 	data["site"] = s.getSiteSettings(r.Context())

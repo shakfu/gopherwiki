@@ -40,6 +40,14 @@ func New(cfg *config.Config, queries *db.Queries) *Auth {
 	}
 }
 
+// dummyHash is a valid bcrypt hash used to perform a throwaway comparison when
+// authentication fails before a real hash is available (unknown email, or a
+// user with no password set). Comparing against it keeps the response time of a
+// failed login uniform, closing the timing oracle that would otherwise reveal
+// whether an account exists. Generated once at startup so it always matches the
+// current bcrypt cost/format.
+var dummyHash, _ = bcrypt.GenerateFromPassword([]byte("gopherwiki-dummy-password"), bcrypt.DefaultCost)
+
 // HashPassword hashes a password using bcrypt.
 func HashPassword(password string) (string, error) {
 	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
@@ -67,12 +75,18 @@ func (a *Auth) Authenticate(ctx context.Context, email, password string) (*model
 
 	dbUser, err := a.queries.GetUserByEmail(ctx, email)
 	if err != nil {
+		// Unknown email: run a dummy comparison so timing does not reveal
+		// that the account is absent.
+		bcrypt.CompareHashAndPassword(dummyHash, []byte(password))
 		return nil, ErrInvalidCredentials
 	}
 
 	user := models.NewUser(&dbUser)
 
 	if !user.HasPasswordHash() {
+		// Account exists but has no password (e.g. external auth): keep timing
+		// uniform with the password-comparison path.
+		bcrypt.CompareHashAndPassword(dummyHash, []byte(password))
 		return nil, ErrInvalidCredentials
 	}
 

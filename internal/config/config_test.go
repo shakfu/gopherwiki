@@ -4,6 +4,46 @@ import (
 	"testing"
 )
 
+func TestSecureCookieAutoDetect(t *testing.T) {
+	t.Run("https site enables secure cookie", func(t *testing.T) {
+		t.Setenv("SITE_URL", "https://wiki.example.com")
+		c := Default()
+		c.LoadFromEnv()
+		if !c.SecureCookie {
+			t.Error("SecureCookie should be true for an https SITE_URL")
+		}
+	})
+
+	t.Run("http site leaves secure cookie off", func(t *testing.T) {
+		t.Setenv("SITE_URL", "http://localhost:8080")
+		c := Default()
+		c.LoadFromEnv()
+		if c.SecureCookie {
+			t.Error("SecureCookie should be false for an http SITE_URL")
+		}
+	})
+
+	t.Run("dev mode forces secure cookie off", func(t *testing.T) {
+		t.Setenv("SITE_URL", "https://wiki.example.com")
+		t.Setenv("DEV_MODE", "1")
+		c := Default()
+		c.LoadFromEnv()
+		if c.SecureCookie {
+			t.Error("SecureCookie should be false in dev mode even with https SITE_URL")
+		}
+	})
+
+	t.Run("explicit override wins", func(t *testing.T) {
+		t.Setenv("SITE_URL", "http://localhost:8080")
+		t.Setenv("COOKIE_SECURE", "true")
+		c := Default()
+		c.LoadFromEnv()
+		if !c.SecureCookie {
+			t.Error("COOKIE_SECURE=true should force SecureCookie on")
+		}
+	})
+}
+
 func TestDefault(t *testing.T) {
 	cfg := Default()
 

@@ -169,6 +169,34 @@ details.dropdown > ul > li > a:hover {
     background: rgba(255, 255, 255, 0.05);
 }
 
+/* Logout is a POST form; style its button to match the menu links. */
+details.dropdown > ul > li > form {
+    margin: 0;
+}
+
+.menu-link-button {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 0.4rem 0.75rem;
+    gap: 0.5rem;
+    background: none;
+    border: none;
+    margin: 0;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.menu-link-button:hover {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="dark"] .menu-link-button:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
 details.dropdown > ul > li.dropdown-divider {
     border-top: 1px solid rgba(0, 0, 0, 0.1);
     margin: 0.25rem 0;

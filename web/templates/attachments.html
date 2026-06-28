@@ -38,6 +38,7 @@
 
 <h3>Upload New Attachment</h3>
 <form action="/{{.pagepath}}/attachments" method="post" enctype="multipart/form-data">
+{{template "csrfField" $.csrf_token}}
     <div class="form-group">
         <input type="file" name="file" class="form-control-file" required>
     </div>
