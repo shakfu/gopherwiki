@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added
+
+- **Admin "Rebuild Search Index" action**: A maintenance button in Admin Settings rebuilds the full-text search index and backlink graph from the Git repository on demand - the recovery path when derived state diverges from the repo.
+
+### Fixed
+
+- **Revert left search and backlinks stale**: Reverting a commit updated Git but not the derived state, so search results, backlinks, and the sidebar reflected pre-revert content. `Revert` now rebuilds the index and invalidates the page-tree cache.
+- **Search index could not self-heal**: A failed incremental index update previously persisted until the database was deleted (the only automatic rebuild required a completely empty index). An unconditional `RebuildIndex` now backs both the admin action and post-revert repair.
+- **Rename did not refresh the sidebar**: Renaming a page left the cached page tree stale until its TTL expired; the cache is now invalidated immediately. Rename's index maintenance also moved behind the wiki service for consistency with save/delete.
+
 ## [0.1.1]
 
 ### Security

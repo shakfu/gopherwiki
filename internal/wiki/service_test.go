@@ -331,6 +331,110 @@ func TestFTS5_IndexAndRemove(t *testing.T) {
 	}
 }
 
+func TestRebuildIndex_ClearsStaleEntries(t *testing.T) {
+	ws, cleanup := setupTestService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	author := storage.Author{Name: "Test", Email: "test@example.com"}
+
+	// Populate the index from the seeded pages.
+	if err := ws.EnsureSearchIndex(ctx); err != nil {
+		t.Fatalf("EnsureSearchIndex failed: %v", err)
+	}
+	if results, _ := ws.Search(ctx, "Welcome"); len(results) == 0 {
+		t.Fatal("expected to find seeded home page before deletion")
+	}
+
+	// Delete a page directly in storage (simulating an out-of-band change that
+	// leaves the index stale), then rebuild.
+	if err := ws.store.Delete("home.md", "remove home", author); err != nil {
+		t.Fatalf("Delete failed: %v", err)
+	}
+	if err := ws.RebuildIndex(ctx); err != nil {
+		t.Fatalf("RebuildIndex failed: %v", err)
+	}
+
+	results, err := ws.Search(ctx, "Welcome")
+	if err != nil {
+		t.Fatalf("Search failed: %v", err)
+	}
+	for _, r := range results {
+		if r.Pagepath == "home" {
+			t.Error("RebuildIndex should have cleared the deleted home page from the index")
+		}
+	}
+}
+
+func TestRevertRepairsIndex(t *testing.T) {
+	ws, cleanup := setupTestService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	author := storage.Author{Name: "Test", Email: "test@example.com"}
+
+	if err := ws.EnsureSearchIndex(ctx); err != nil {
+		t.Fatalf("EnsureSearchIndex failed: %v", err)
+	}
+
+	// Add a page with a unique word and index it, then confirm it's findable.
+	if _, err := ws.SavePage(ctx, "temp", "# Temp\nContains qwertyuiop.\n", "add temp", "", author); err != nil {
+		t.Fatalf("SavePage failed: %v", err)
+	}
+	if results, _ := ws.Search(ctx, "qwertyuiop"); len(results) != 1 {
+		t.Fatalf("expected 1 result for the new page, got %d", len(results))
+	}
+
+	// Find the commit that added it and revert it.
+	commits, err := ws.Changelog(ctx, 1)
+	if err != nil || len(commits) == 0 {
+		t.Fatalf("Changelog failed: %v", err)
+	}
+	if err := ws.Revert(ctx, commits[0].Revision, "revert temp", author); err != nil {
+		t.Fatalf("Revert failed: %v", err)
+	}
+
+	// After revert, the page is gone from git AND the (rebuilt) index.
+	results, err := ws.Search(ctx, "qwertyuiop")
+	if err != nil {
+		t.Fatalf("Search failed: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("expected reverted page to be gone from the index, got %d results", len(results))
+	}
+}
+
+func TestRenamePage_UpdatesIndex(t *testing.T) {
+	ws, cleanup := setupTestService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	author := storage.Author{Name: "Test", Email: "test@example.com"}
+
+	if _, err := ws.SavePage(ctx, "oldname", "# Old Name\nUnique term plutonium.\n", "add", "", author); err != nil {
+		t.Fatalf("SavePage failed: %v", err)
+	}
+
+	newPath, err := ws.RenamePage(ctx, "oldname", "newname", "rename", author)
+	if err != nil {
+		t.Fatalf("RenamePage failed: %v", err)
+	}
+	if newPath != "newname" {
+		t.Errorf("newPath = %q, want %q", newPath, "newname")
+	}
+
+	results, err := ws.Search(ctx, "plutonium")
+	if err != nil {
+		t.Fatalf("Search failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result after rename, got %d", len(results))
+	}
+	if results[0].Pagepath != "newname" {
+		t.Errorf("result pagepath = %q, want %q (old entry should be gone, new one present)", results[0].Pagepath, "newname")
+	}
+}
+
 func TestFTS5_EnsureSearchIndex(t *testing.T) {
 	ws, cleanup := setupTestService(t)
 	defer cleanup()

@@ -154,6 +154,7 @@ func (s *Server) Routes() chi.Router {
 			r.Post("/admin/settings", s.handleAdminSettingsSave)
 			r.Post("/admin/site-settings", s.handleAdminSiteSettingsSave)
 			r.Post("/admin/issue-settings", s.handleAdminIssueSettingsSave)
+			r.Post("/admin/reindex", s.handleAdminReindex)
 			r.Post("/issues/{id}/delete", s.handleIssueDelete)
 			r.Post("/issues/{id}/comment/{commentId}/delete", s.handleIssueCommentDelete)
 		})

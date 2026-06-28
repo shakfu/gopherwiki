@@ -352,34 +352,15 @@ func (s *Server) handleRename(w http.ResponseWriter, r *http.Request) {
 	path := chi.URLParam(r, "path")
 	newPagename := r.FormValue("new_pagename")
 	message := r.FormValue("message")
+	author := s.getAuthor(r)
 
-	page, err := wiki.NewPage(s.Storage, s.Config, path, "")
+	newPath, err := s.Wiki.RenamePage(r.Context(), path, newPagename, message, author)
 	if err != nil {
 		s.renderError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	author := s.getAuthor(r)
-
-	if message == "" {
-		message = "Renamed " + page.Pagename + " to " + newPagename
-	}
-
-	if err := page.Rename(newPagename, message, author); err != nil {
-		s.renderError(w, r, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	if err := s.Wiki.RemovePageFromIndex(r.Context(), path); err != nil {
-		slog.Warn("failed to remove old page from index", "path", path, "error", err)
-	}
-	if content, err := s.Storage.Load(util.GetFilename(newPagename), ""); err == nil {
-		if err := s.Wiki.IndexPage(r.Context(), newPagename, content); err != nil {
-			slog.Warn("failed to index renamed page", "path", newPagename, "error", err)
-		}
-	}
-
-	http.Redirect(w, r, "/"+newPagename, http.StatusFound)
+	http.Redirect(w, r, "/"+newPath, http.StatusFound)
 }
 
 // handleAttachments handles viewing attachments.

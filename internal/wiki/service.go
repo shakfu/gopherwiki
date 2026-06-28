@@ -184,6 +184,8 @@ func (ws *WikiService) RemovePageFromIndex(ctx context.Context, pagepath string)
 }
 
 // EnsureSearchIndex rebuilds the FTS5 index from git storage if it is empty.
+// Used at startup so a fresh database is populated without forcing a rebuild on
+// every boot.
 func (ws *WikiService) EnsureSearchIndex(ctx context.Context) error {
 	if ws.db == nil {
 		return nil
@@ -194,6 +196,19 @@ func (ws *WikiService) EnsureSearchIndex(ctx context.Context) error {
 		return err
 	}
 	if count > 0 {
+		return nil
+	}
+
+	return ws.RebuildIndex(ctx)
+}
+
+// RebuildIndex unconditionally rebuilds the FTS5 search index and backlink graph
+// from git storage. It is the single source of truth for repairing derived
+// state and is invoked at startup (when empty), after a revert, and by the admin
+// reindex action. Because it replaces the whole index, it also clears entries
+// for pages that no longer exist.
+func (ws *WikiService) RebuildIndex(ctx context.Context) error {
+	if ws.db == nil {
 		return nil
 	}
 
@@ -229,10 +244,6 @@ func (ws *WikiService) EnsureSearchIndex(ctx context.Context) error {
 				Targets: targets,
 			})
 		}
-	}
-
-	if len(pages) == 0 {
-		return nil
 	}
 
 	if err := ws.db.RebuildPageIndex(ctx, pages); err != nil {
@@ -351,9 +362,19 @@ func (ws *WikiService) ShowCommit(ctx context.Context, revision string) (*storag
 	return ws.store.ShowCommit(revision)
 }
 
-// Revert reverts a commit.
+// Revert reverts a commit and repairs derived state. A revert can touch many
+// files at once, so the whole search index and backlink graph are rebuilt and
+// the page-tree cache invalidated to keep search, backlinks, and the sidebar
+// consistent with the reverted content.
 func (ws *WikiService) Revert(ctx context.Context, revision, message string, author storage.Author) error {
-	return ws.store.Revert(revision, message, author)
+	if err := ws.store.Revert(revision, message, author); err != nil {
+		return err
+	}
+	if err := ws.RebuildIndex(ctx); err != nil {
+		slog.Warn("failed to rebuild search index after revert", "error", err)
+	}
+	ws.InvalidatePageTreeCache()
+	return nil
 }
 
 // SavePageResult holds the outcome of a SavePage operation.
@@ -430,6 +451,47 @@ func (ws *WikiService) DeletePage(ctx context.Context, pagepath, message string,
 	ws.InvalidatePageTreeCache()
 
 	return nil
+}
+
+// RenamePage renames a page (and its attachments) and keeps the derived state
+// consistent: the old page is dropped from the search index and backlink graph,
+// the new page is indexed, and the page-tree cache is invalidated. It returns
+// the normalized pagepath of the renamed page.
+//
+// Note: inbound [[wikilinks]] in other pages are intentionally not rewritten -
+// silently editing other users' content on a rename is surprising and risky.
+// Such links continue to point at the old name until edited.
+func (ws *WikiService) RenamePage(ctx context.Context, pagepath, newPagename, message string, author storage.Author) (string, error) {
+	page, err := NewPage(ws.store, ws.config, pagepath, "")
+	if err != nil {
+		return "", err
+	}
+
+	if message == "" {
+		message = "Renamed " + page.Pagename + " to " + newPagename
+	}
+
+	if err := page.Rename(newPagename, message, author); err != nil {
+		return "", err
+	}
+
+	// Maintain derived state.
+	if err := ws.RemovePageFromIndex(ctx, pagepath); err != nil {
+		slog.Warn("failed to remove old page from index", "path", pagepath, "error", err)
+	}
+
+	newPath := newPagename
+	if newPage, err := NewPage(ws.store, ws.config, newPagename, ""); err == nil {
+		newPath = newPage.Pagepath
+		if newPage.Exists {
+			if err := ws.IndexPage(ctx, newPage.Pagepath, newPage.Content); err != nil {
+				slog.Warn("failed to index renamed page", "path", newPage.Pagepath, "error", err)
+			}
+		}
+	}
+
+	ws.InvalidatePageTreeCache()
+	return newPath, nil
 }
 
 // Diff returns the diff between two revisions.

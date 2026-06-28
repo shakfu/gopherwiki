@@ -212,6 +212,24 @@ func (s *Server) handleAdminSettingsSave(w http.ResponseWriter, r *http.Request)
 	http.Redirect(w, r, "/-/admin/settings", http.StatusFound)
 }
 
+// handleAdminReindex rebuilds the search index and backlink graph from git
+// storage. This is the operational escape hatch when derived state has diverged
+// from the repository (e.g. after an out-of-band git change or a missed update).
+func (s *Server) handleAdminReindex(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+
+	if err := s.Wiki.RebuildIndex(r.Context()); err != nil {
+		slog.Error("failed to rebuild search index", "error", err)
+		s.SessionManager.AddFlashMessage(w, r, "danger", "Failed to rebuild search index: "+err.Error())
+	} else {
+		s.Wiki.InvalidatePageTreeCache()
+		s.SessionManager.AddFlashMessage(w, r, "success", "Search index and backlinks rebuilt")
+	}
+	http.Redirect(w, r, "/-/admin/settings", http.StatusFound)
+}
+
 // handleAdminSiteSettingsSave handles saving site name and logo.
 func (s *Server) handleAdminSiteSettingsSave(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdmin(w, r) {

@@ -1,8 +1,12 @@
 # Build artifacts
 build/
+bin/
 
 # Binaries
-gopherwiki
+# Anchored to the repo root so it only ignores the built binary, not the
+# cmd/gopherwiki/ source directory (which contains embedded files like
+# syntax_guide.md that must be tracked for `go:embed` to build in CI).
+/gopherwiki
 *.exe
 *.exe~
 *.dll
