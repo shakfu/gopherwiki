@@ -2,11 +2,11 @@
 
 ## High Priority
 
-- [ ] Add CSRF protection to forms
-- [ ] Set `Secure` flag on session cookies for production
-- [ ] Fix timing attack in authentication (compare dummy hash on user-not-found)
-- [ ] URL-encode login redirect `next` parameter and validate against open redirects
-- [ ] Sanitize upload filenames in handler (strip directory components, reject suspicious characters)
+- [x] Add CSRF protection to forms (double-submit middleware, `CSRFProtect` in routes)
+- [x] Set `Secure` flag on session cookies for production (`session.go`)
+- [x] Fix timing attack in authentication (dummy bcrypt compare on user-not-found, `auth.go`)
+- [x] URL-encode login redirect `next` parameter and validate against open redirects (`safeRedirectPath`)
+- [x] Sanitize upload filenames in handler (strip directory components, reject suspicious characters)
 - [ ] Implement email sending for password recovery and notifications
 - [ ] Add user email confirmation flow
 
