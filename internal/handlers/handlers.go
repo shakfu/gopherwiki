@@ -15,10 +15,27 @@ import (
 	"github.com/sa/gopherwiki/internal/config"
 	"github.com/sa/gopherwiki/internal/db"
 	"github.com/sa/gopherwiki/internal/middleware"
+	"github.com/sa/gopherwiki/internal/quarto"
+	"github.com/sa/gopherwiki/internal/rendercache"
 	"github.com/sa/gopherwiki/internal/renderer"
 	"github.com/sa/gopherwiki/internal/storage"
 	"github.com/sa/gopherwiki/internal/wiki"
 )
+
+// RenderService performs gated rendering of computational pages and serves
+// cached output. *quarto.Service is the production implementation; it is
+// optional and nil when computational pages are disabled or the toolchain is
+// absent.
+type RenderService interface {
+	// Available reports whether renders can be performed and cached.
+	Available() bool
+	// Render executes a page and stores its output, returning the cache entry.
+	Render(ctx context.Context, in quarto.Input) (rendercache.Entry, error)
+	// Cached returns the stored render for a page's current source, if present.
+	Cached(ctx context.Context, source, engine string) (rendercache.Entry, bool, error)
+	// Invalidate drops any cached renders for a page.
+	Invalidate(ctx context.Context, pagepath string) error
+}
 
 // siteSettingsCacheTTL is how long cached site settings remain valid.
 const siteSettingsCacheTTL = 60 * time.Second
@@ -37,6 +54,10 @@ type Server struct {
 	Auth              *auth.Auth
 	SessionManager    *middleware.SessionManager
 	PermissionChecker *middleware.PermissionChecker
+	// RenderService is the optional computational-page renderer. Nil disables
+	// the render endpoint and makes computational pages show the render-pending
+	// placeholder.
+	RenderService RenderService
 
 	// Site settings cache
 	ssMu       sync.RWMutex
@@ -192,7 +213,7 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, page *wiki.P
 		}
 	}
 
-	htmlContent, toc, libRequirements := page.Render(s.Renderer)
+	htmlContent, toc, libRequirements := s.renderPageContent(r.Context(), page)
 	data := NewPageData(page, template.HTML(htmlContent), toc, libRequirements)
 
 	// Fetch backlinks
@@ -201,6 +222,20 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, page *wiki.P
 	}
 
 	s.renderTemplate(w, r, "page.html", data)
+}
+
+// renderPageContent produces the main HTML content for a page view. Plain pages
+// render in-process via goldmark. A computational page whose output is cached is
+// embedded via an iframe pointing at the rendered-output endpoint; if it is not
+// yet rendered (cache miss, or rendering unavailable) it falls back to the
+// render-pending placeholder. On-view execution never happens here.
+func (s *Server) renderPageContent(ctx context.Context, page *wiki.Page) (string, []renderer.TOCEntry, renderer.LibraryRequirements) {
+	if page.IsComputational && s.RenderService != nil && s.RenderService.Available() {
+		if _, ok, err := s.RenderService.Cached(ctx, page.Content, pageEngine(page)); err == nil && ok {
+			return computationalIframe(page.PageViewURL), nil, renderer.LibraryRequirements{}
+		}
+	}
+	return page.Render(s.Renderer)
 }
 
 // renderNotFound renders a 404 page for a missing wiki page.

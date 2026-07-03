@@ -89,6 +89,14 @@ type Config struct {
 	// Issue tracker settings
 	IssueTags       string // Comma-separated list of available issue tags
 	IssueCategories string // Comma-separated list of available issue categories (mutually exclusive)
+
+	// Computational page (Quarto) rendering. Optional and feature-detected; see
+	// docs/computational-pages.md.
+	QuartoEnabled     bool   // Enable gated rendering of .qmd computational pages
+	QuartoPath        string // quarto binary name or path
+	RenderTimeoutSecs int    // Wall-clock limit for a single render
+	RenderConcurrency int    // Max concurrent renders
+	RenderCachePath   string // Render cache DB path ("" derives a sibling of the primary DB)
 }
 
 // Default returns a Config with default values.
@@ -151,6 +159,11 @@ func Default() *Config {
 		HTMLExtraBody:      "",
 		IssueTags:       "bug,feature,improvement,question,documentation",
 		IssueCategories: "", // Empty by default - no categories required
+		QuartoEnabled:     false,
+		QuartoPath:        "quarto",
+		RenderTimeoutSecs: 120,
+		RenderConcurrency: 2,
+		RenderCachePath:   "",
 	}
 }
 
@@ -279,6 +292,12 @@ func (c *Config) LoadFromEnv() {
 	// Issue tracker settings
 	c.IssueTags = getEnv("ISSUE_TAGS", c.IssueTags)
 	c.IssueCategories = getEnv("ISSUE_CATEGORIES", c.IssueCategories)
+
+	c.QuartoEnabled = getEnvBool("COMPUTATIONAL_PAGES_ENABLED", c.QuartoEnabled)
+	c.QuartoPath = getEnv("QUARTO_PATH", c.QuartoPath)
+	c.RenderTimeoutSecs = getEnvInt("RENDER_TIMEOUT_SECONDS", c.RenderTimeoutSecs)
+	c.RenderConcurrency = getEnvInt("RENDER_CONCURRENCY", c.RenderConcurrency)
+	c.RenderCachePath = getEnv("RENDER_CACHE_PATH", c.RenderCachePath)
 }
 
 // Validate checks that required configuration is set.

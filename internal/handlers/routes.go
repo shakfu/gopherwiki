@@ -205,6 +205,7 @@ func (s *Server) Routes() chi.Router {
 		r.Group(func(r chi.Router) {
 			r.Use(s.PermissionChecker.RequireRead)
 			r.Get("/", s.handleView)
+			r.Get("/rendered", s.handleRendered)
 			r.Get("/history", s.handleHistory)
 			r.Get("/source", s.handleSource)
 			r.Get("/blame", s.handleBlame)
@@ -229,6 +230,7 @@ func (s *Server) Routes() chi.Router {
 			r.Post("/preview", s.handlePreview)
 			r.Post("/draft", s.handleDraftSave)
 			r.Delete("/draft", s.handleDraftDelete)
+			r.Post("/render", s.handleRender)
 		})
 
 		// Upload-protected page routes

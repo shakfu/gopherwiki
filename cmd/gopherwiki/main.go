@@ -24,6 +24,8 @@ import (
 	"github.com/sa/gopherwiki/internal/config"
 	"github.com/sa/gopherwiki/internal/db"
 	"github.com/sa/gopherwiki/internal/handlers"
+	"github.com/sa/gopherwiki/internal/quarto"
+	"github.com/sa/gopherwiki/internal/rendercache"
 	"github.com/sa/gopherwiki/internal/storage"
 	"github.com/sa/gopherwiki/web"
 )
@@ -95,6 +97,47 @@ func isLoopbackHost(host string) bool {
 	default:
 		return false
 	}
+}
+
+// setupRenderService detects the Quarto toolchain and, when available, wires the
+// computational-page render service (with its own render cache database) onto
+// the server. Absence of the toolchain is logged and left non-fatal: the wiki
+// runs normally and .qmd pages show the render-pending placeholder.
+func setupRenderService(server *handlers.Server, cfg *config.Config) {
+	caps := quarto.Detect(context.Background(), cfg.QuartoPath)
+	if !caps.Available {
+		slog.Warn("computational pages enabled but quarto was not found; .qmd pages will show the render-pending placeholder",
+			"quarto_path", cfg.QuartoPath)
+		return
+	}
+
+	cachePath := cfg.RenderCachePath
+	if cachePath == "" {
+		cachePath = rendercache.DefaultPath(sqlitePath(cfg.DatabaseURI))
+	}
+	cache, err := rendercache.Open(cachePath)
+	if err != nil {
+		slog.Error("failed to open render cache; computational rendering disabled", "path", cachePath, "error", err)
+		return
+	}
+
+	timeout := time.Duration(cfg.RenderTimeoutSecs) * time.Second
+	server.RenderService = quarto.NewService(caps, cache, timeout, cfg.RenderConcurrency)
+	slog.Info("computational page rendering enabled",
+		"quarto_version", caps.Version, "render_cache", cachePath, "concurrency", cfg.RenderConcurrency)
+}
+
+// sqlitePath extracts a filesystem path from a sqlite database URI. It mirrors
+// the parsing in db.Open so the render cache can be placed beside the primary
+// database.
+func sqlitePath(uri string) string {
+	path := uri
+	if strings.HasPrefix(uri, "sqlite:///") {
+		path = strings.TrimPrefix(uri, "sqlite:///")
+	} else if strings.HasPrefix(uri, "sqlite://") {
+		path = strings.TrimPrefix(uri, "sqlite://")
+	}
+	return path
 }
 
 //go:embed syntax_guide.md
@@ -230,6 +273,13 @@ func main() {
 	server, err := handlers.NewServer(cfg, store, database, Version)
 	if err != nil {
 		fatal("failed to create server", "error", err)
+	}
+
+	// Optionally enable computational-page rendering (Quarto). Feature-detected:
+	// if the toolchain is absent the wiki runs unchanged and .qmd pages show the
+	// render-pending placeholder.
+	if cfg.QuartoEnabled {
+		setupRenderService(server, cfg)
 	}
 
 	// Build search index on startup

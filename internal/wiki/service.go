@@ -113,7 +113,7 @@ func (ws *WikiService) searchBruteForce(query string) ([]SearchResult, error) {
 
 	var results []SearchResult
 	for _, f := range files {
-		if !strings.HasSuffix(f, ".md") {
+		if !util.IsMarkdownFile(f) {
 			continue
 		}
 
@@ -127,7 +127,7 @@ func (ws *WikiService) searchBruteForce(query string) ([]SearchResult, error) {
 			continue
 		}
 
-		pagepath := strings.TrimSuffix(f, ".md")
+		pagepath := util.StripMarkdownExtension(f)
 		pagename := util.GetPagename(pagepath, false)
 
 		if header := util.GetHeader(content); header != "" {
@@ -205,14 +205,14 @@ func (ws *WikiService) EnsureSearchIndex(ctx context.Context) error {
 	var pages []db.PageIndexData
 	var links []db.PageLinkData
 	for _, f := range files {
-		if !strings.HasSuffix(f, ".md") {
+		if !util.IsMarkdownFile(f) {
 			continue
 		}
 		content, err := ws.store.Load(f, "")
 		if err != nil {
 			continue
 		}
-		pagepath := strings.TrimSuffix(f, ".md")
+		pagepath := util.StripMarkdownExtension(f)
 		title := util.GetHeader(content)
 		if title == "" {
 			title = util.GetPagename(pagepath, false)
@@ -255,10 +255,10 @@ func (ws *WikiService) PageIndex(ctx context.Context) ([]PageIndexEntry, error) 
 
 	var pages []PageIndexEntry
 	for _, f := range files {
-		if !strings.HasSuffix(f, ".md") {
+		if !util.IsMarkdownFile(f) {
 			continue
 		}
-		pagepath := strings.TrimSuffix(f, ".md")
+		pagepath := util.StripMarkdownExtension(f)
 		pages = append(pages, PageIndexEntry{
 			Name: util.GetPagename(pagepath, false),
 			Path: pagepath,

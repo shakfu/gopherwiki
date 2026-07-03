@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/sa/gopherwiki/internal/util"
 )
 
 // handleFeed handles the RSS feed.
@@ -94,10 +96,14 @@ func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
 `)
 
 	for _, page := range pages {
-		filename := page.Path + ".md"
-		mtime, err := s.Storage.Mtime(filename)
-		if err != nil {
-			mtime = time.Time{}
+		// A page may be stored as .md or .qmd; use the mtime of whichever
+		// source file exists.
+		var mtime time.Time
+		for _, candidate := range util.CandidateFilenames(page.Path) {
+			if m, err := s.Storage.Mtime(candidate); err == nil {
+				mtime = m
+				break
+			}
 		}
 		fmt.Fprintf(w, `<url>
 <loc>%s/%s</loc>

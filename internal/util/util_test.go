@@ -297,3 +297,117 @@ func TestURLQuote(t *testing.T) {
 		}
 	}
 }
+
+func TestIsMarkdownFile(t *testing.T) {
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{"Home.md", true},
+		{"Home.qmd", true},
+		{"Home.QMD", true},
+		{"nested/Page.md", true},
+		{"analysis.qmd", true},
+		{"image.png", false},
+		{"notes.txt", false},
+		{"noext", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		if got := IsMarkdownFile(tt.input); got != tt.want {
+			t.Errorf("IsMarkdownFile(%q) = %v, want %v", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestIsQuartoFile(t *testing.T) {
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{"analysis.qmd", true},
+		{"Analysis.QMD", true},
+		{"Home.md", false},
+		{"image.png", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		if got := IsQuartoFile(tt.input); got != tt.want {
+			t.Errorf("IsQuartoFile(%q) = %v, want %v", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestStripMarkdownExtension(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"Home.md", "Home"},
+		{"Home.qmd", "Home"},
+		{"nested/Page.md", "nested/Page"},
+		{"analysis.QMD", "analysis"},
+		{"image.png", "image.png"},
+		{"noext", "noext"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		if got := StripMarkdownExtension(tt.input); got != tt.want {
+			t.Errorf("StripMarkdownExtension(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestCandidateFilenames(t *testing.T) {
+	got := CandidateFilenames("Foo/Bar")
+	want := []string{"Foo/Bar.md", "Foo/Bar.qmd"}
+	if len(got) != len(want) {
+		t.Fatalf("CandidateFilenames returned %d entries, want %d: %v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("CandidateFilenames[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+	// .md must precede .qmd so plain pages win resolution ties.
+	if got[0] != "Foo/Bar.md" {
+		t.Errorf("expected .md to have resolution priority, got %v", got)
+	}
+	// An input carrying an extension is normalized before candidates are built.
+	if c := CandidateFilenames("Foo.qmd"); c[0] != "Foo.md" || c[1] != "Foo.qmd" {
+		t.Errorf("CandidateFilenames(%q) = %v, want [Foo.md Foo.qmd]", "Foo.qmd", c)
+	}
+}
+
+func TestSanitizePagenameStripsQuarto(t *testing.T) {
+	tests := []struct {
+		input    string
+		handleMD bool
+		want     string
+	}{
+		{"analysis.qmd", true, "analysis"},
+		{"analysis.md", true, "analysis"},
+		{"analysis.qmd", false, "analysis.qmd"},
+		{"/nested/page.qmd/", true, "nested/page"},
+	}
+	for _, tt := range tests {
+		if got := SanitizePagename(tt.input, tt.handleMD); got != tt.want {
+			t.Errorf("SanitizePagename(%q, %v) = %q, want %q", tt.input, tt.handleMD, got, tt.want)
+		}
+	}
+}
+
+func TestGetAttachmentDirectorynameQuarto(t *testing.T) {
+	if got := GetAttachmentDirectoryname("analysis.qmd"); got != "analysis" {
+		t.Errorf("GetAttachmentDirectoryname(analysis.qmd) = %q, want %q", got, "analysis")
+	}
+	if got := GetAttachmentDirectoryname("nested/analysis.qmd"); got != "nested/analysis" {
+		t.Errorf("GetAttachmentDirectoryname(nested/analysis.qmd) = %q, want %q", got, "nested/analysis")
+	}
+}
+
+func TestGuessMimetypeQuarto(t *testing.T) {
+	if got := GuessMimetype("analysis.qmd"); got != "text/markdown" {
+		t.Errorf("GuessMimetype(analysis.qmd) = %q, want %q", got, "text/markdown")
+	}
+}

@@ -1,8 +1,12 @@
 # Build artifacts
 build/
+bin/
 
 # Binaries
-gopherwiki
+# Anchored to repo root so it ignores only the top-level binary, not the
+# cmd/gopherwiki/ source directory (an unanchored "gopherwiki" matched that
+# directory and silently ignored files like cmd/gopherwiki/syntax_guide.md).
+/gopherwiki
 *.exe
 *.exe~
 *.dll

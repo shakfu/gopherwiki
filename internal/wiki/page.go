@@ -2,10 +2,12 @@
 package wiki
 
 import (
+	"html"
 	"log/slog"
 	"strings"
 
 	"github.com/sa/gopherwiki/internal/config"
+	"github.com/sa/gopherwiki/internal/frontmatter"
 	"github.com/sa/gopherwiki/internal/renderer"
 	"github.com/sa/gopherwiki/internal/storage"
 	"github.com/sa/gopherwiki/internal/util"
@@ -19,13 +21,45 @@ type Page struct {
 	Filename              string
 	AttachmentDirectoryname string
 	Revision              string
-	Content               string
+	// Content is the raw stored source, including any frontmatter block.
+	Content string
+	// Body is Content with the leading YAML frontmatter removed; it is what
+	// gets rendered to HTML.
+	Body string
+	// Frontmatter is the parsed YAML metadata block, or nil when the page has
+	// none.
+	Frontmatter           *frontmatter.Frontmatter
 	Metadata              *storage.CommitMetadata
 	Exists                bool
 	PageViewURL           string
+	// IsComputational is true when the page is stored as a Quarto (.qmd) source
+	// and must be rendered offline by Quarto rather than in-process by goldmark.
+	IsComputational bool
 
 	store  storage.Storage
 	config *config.Config
+}
+
+// resolveFilename determines the source filename backing a page path. It prefers
+// an existing file, checking the recognized extensions (.md then .qmd) in
+// priority order, and falls back to the default extension for a page that does
+// not yet exist. Case is normalized unless RetainPageNameCase is set.
+func resolveFilename(store storage.Storage, cfg *config.Config, pagepath string) string {
+	normalize := func(name string) string {
+		if !cfg.RetainPageNameCase {
+			return strings.ToLower(name)
+		}
+		return name
+	}
+
+	for _, candidate := range util.CandidateFilenames(pagepath) {
+		candidate = normalize(candidate)
+		if store.Exists(candidate) {
+			return candidate
+		}
+	}
+
+	return normalize(util.GetFilename(pagepath))
 }
 
 // NewPage creates a new Page object.
@@ -34,11 +68,9 @@ func NewPage(store storage.Storage, cfg *config.Config, pagepath string, revisio
 	pagename := util.GetPagename(pagepath, false)
 	pagenameFull := util.GetPagename(pagepath, true)
 
-	// Handle case sensitivity
-	filename := util.GetFilename(pagepath)
-	if !cfg.RetainPageNameCase {
-		filename = strings.ToLower(filename)
-	}
+	// Resolve the backing file, which may be plain markdown (.md) or a Quarto
+	// computational page (.qmd).
+	filename := resolveFilename(store, cfg, pagepath)
 
 	p := &Page{
 		Pagepath:              pagepath,
@@ -48,6 +80,7 @@ func NewPage(store storage.Storage, cfg *config.Config, pagepath string, revisio
 		AttachmentDirectoryname: util.GetAttachmentDirectoryname(filename),
 		Revision:              revision,
 		PageViewURL:           "/" + pagepath,
+		IsComputational:       util.IsQuartoFile(filename),
 		store:                 store,
 		config:                cfg,
 	}
@@ -61,15 +94,24 @@ func NewPage(store storage.Storage, cfg *config.Config, pagepath string, revisio
 		}
 	} else {
 		p.Exists = true
+	}
 
-		// Update pagename from header if content exists
-		if p.Content != "" {
-			header := util.GetHeader(p.Content)
-			if header != "" {
-				p.Pagename = util.GetPagenameForTitle(p.Pagepath, false, header)
-				p.PagenameFull = util.GetPagenameForTitle(p.Pagepath, true, header)
-			}
-		}
+	// Separate the frontmatter block from the body. Parse tolerates empty and
+	// frontmatter-less content, so this is safe for missing pages too.
+	p.Frontmatter, p.Body = frontmatter.Parse(p.Content)
+
+	// Determine the display title. A frontmatter `title` wins, then a leading
+	// markdown heading, otherwise the page name derived from the path.
+	title := ""
+	if p.Frontmatter != nil {
+		title = p.Frontmatter.Title
+	}
+	if title == "" {
+		title = util.GetHeader(p.Body)
+	}
+	if title != "" {
+		p.Pagename = util.GetPagenameForTitle(p.Pagepath, false, title)
+		p.PagenameFull = util.GetPagenameForTitle(p.Pagepath, true, title)
 	}
 
 	return p, nil
@@ -99,11 +141,30 @@ func (p *Page) Breadcrumbs() []util.Breadcrumb {
 }
 
 // Render renders the page content to HTML.
+//
+// Plain markdown pages render in-process via goldmark. Computational (.qmd)
+// pages are rendered offline by Quarto and served from a cache; until that
+// cache is populated (or when the toolchain is absent) they render a
+// "render pending" placeholder rather than executing code on a page view. See
+// docs/computational-pages.md.
 func (p *Page) Render(r *renderer.Renderer) (string, []renderer.TOCEntry, renderer.LibraryRequirements) {
-	if p.Content == "" {
+	if p.IsComputational {
+		return renderPendingPlaceholder(p.Pagename), nil, renderer.LibraryRequirements{}
+	}
+	if p.Body == "" {
 		return "", nil, renderer.LibraryRequirements{}
 	}
-	return r.Render(p.Content, p.PageViewURL)
+	return r.Render(p.Body, p.PageViewURL)
+}
+
+// renderPendingPlaceholder is the HTML shown for a computational page that has
+// not yet been rendered into the cache. On-view execution is never triggered.
+func renderPendingPlaceholder(pagename string) string {
+	return `<div class="computational-pending" role="status">` +
+		`<p><strong>` + html.EscapeString(pagename) + `</strong> is a computational page.</p>` +
+		`<p>Its output has not been rendered yet. An editor must run the render ` +
+		`action to execute its code and publish the result.</p>` +
+		`</div>`
 }
 
 // Save saves the page content.
@@ -148,9 +209,14 @@ func (p *Page) Delete(message string, author storage.Author, recursive bool) err
 	return nil
 }
 
-// Rename renames the page.
+// Rename renames the page. The source extension is preserved so a computational
+// (.qmd) page does not silently become a plain markdown page on rename.
 func (p *Page) Rename(newPagename, message string, author storage.Author) error {
-	newFilename := util.GetFilename(newPagename)
+	ext := util.DefaultMarkdownExtension
+	if util.IsMarkdownFile(p.Filename) {
+		ext = strings.ToLower(p.Filename[len(util.StripMarkdownExtension(p.Filename)):])
+	}
+	newFilename := util.SanitizePagename(newPagename, true) + ext
 	if !p.config.RetainPageNameCase {
 		newFilename = strings.ToLower(newFilename)
 	}

@@ -17,6 +17,69 @@ var (
 	slugMultiHyphenRegex = regexp.MustCompile(`-+`)
 )
 
+// DefaultMarkdownExtension is the extension used when creating a new page or
+// when a page path resolves to no existing file. Plain markdown pages render
+// in-process via goldmark.
+const DefaultMarkdownExtension = ".md"
+
+// QuartoExtension marks a computational (Quarto) page. Pages with this
+// extension are rendered offline by Quarto and served from a cache rather than
+// rendered in-process. See docs/computational-pages.md.
+const QuartoExtension = ".qmd"
+
+// markdownExtensions are the recognized page source extensions, in resolution
+// priority order. A page path with no explicit extension resolves to whichever
+// of these exists in storage, preferring the earlier entry when several exist.
+var markdownExtensions = []string{DefaultMarkdownExtension, QuartoExtension}
+
+// MarkdownExtensions returns a copy of the recognized page source extensions in
+// resolution priority order.
+func MarkdownExtensions() []string {
+	return append([]string(nil), markdownExtensions...)
+}
+
+// IsMarkdownFile reports whether filename has a recognized page source
+// extension (either plain markdown or a Quarto computational page).
+func IsMarkdownFile(filename string) bool {
+	lower := strings.ToLower(filename)
+	for _, ext := range markdownExtensions {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+// IsQuartoFile reports whether filename is a Quarto computational page.
+func IsQuartoFile(filename string) bool {
+	return strings.HasSuffix(strings.ToLower(filename), QuartoExtension)
+}
+
+// StripMarkdownExtension removes a recognized markdown extension from name if
+// present, returning the bare page path. Names without a recognized extension
+// are returned unchanged.
+func StripMarkdownExtension(name string) string {
+	lower := strings.ToLower(name)
+	for _, ext := range markdownExtensions {
+		if strings.HasSuffix(lower, ext) {
+			return name[:len(name)-len(ext)]
+		}
+	}
+	return name
+}
+
+// CandidateFilenames returns the possible source filenames for a page path, in
+// resolution priority order. Callers check storage for each in turn to find the
+// file backing a page.
+func CandidateFilenames(pagepath string) []string {
+	pagepath = SanitizePagename(pagepath, true)
+	candidates := make([]string, 0, len(markdownExtensions))
+	for _, ext := range markdownExtensions {
+		candidates = append(candidates, pagepath+ext)
+	}
+	return candidates
+}
+
 // Empty checks if a string is empty or contains only whitespace.
 func Empty(s string) bool {
 	return strings.TrimSpace(s) == ""
@@ -48,16 +111,18 @@ func Slugify(s string, keepSlashes bool) string {
 
 // SanitizePagename cleans up a page name.
 func SanitizePagename(name string, handleMD bool) string {
-	// Remove .md extension if requested
-	if handleMD && strings.HasSuffix(strings.ToLower(name), ".md") {
-		name = name[:len(name)-3]
-	}
-
 	// Trim whitespace
 	name = strings.TrimSpace(name)
 
 	// Remove leading/trailing slashes
 	name = strings.Trim(name, "/")
+
+	// Remove a recognized markdown extension (.md or .qmd) if requested. Done
+	// after trimming so a stray trailing slash or surrounding whitespace does
+	// not defeat extension stripping.
+	if handleMD {
+		name = StripMarkdownExtension(name)
+	}
 
 	return name
 }
@@ -85,19 +150,20 @@ func GetPagepath(pagename string) string {
 	return SanitizePagename(pagename, true)
 }
 
-// GetFilename converts a page path to a filename with .md extension.
+// GetFilename converts a page path to a filename with the default markdown
+// extension. This is the extension used for new pages; to find the file backing
+// an existing page (which may be .qmd), resolve against storage using
+// CandidateFilenames.
 func GetFilename(pagepath string) string {
 	pagepath = SanitizePagename(pagepath, true)
-	return pagepath + ".md"
+	return pagepath + DefaultMarkdownExtension
 }
 
-// GetAttachmentDirectoryname returns the attachment directory for a page.
+// GetAttachmentDirectoryname returns the attachment directory for a page. The
+// directory is the page path without its markdown extension, so it is shared by
+// a page regardless of whether it is stored as .md or .qmd.
 func GetAttachmentDirectoryname(filename string) string {
-	// Remove .md extension
-	if strings.HasSuffix(filename, ".md") {
-		filename = filename[:len(filename)-3]
-	}
-	return filename
+	return StripMarkdownExtension(filename)
 }
 
 // GetPageDirectoryname returns the directory portion of a page path.
@@ -143,8 +209,8 @@ func GuessMimetype(filename string) string {
 		return "application/octet-stream"
 	}
 
-	// Check for markdown
-	if ext == ".md" || ext == ".markdown" {
+	// Check for markdown (including Quarto computational pages)
+	if ext == ".md" || ext == ".markdown" || ext == QuartoExtension {
 		return "text/markdown"
 	}
 
