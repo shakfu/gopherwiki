@@ -92,6 +92,14 @@ func (s *Server) Routes() chi.Router {
 	staticHandler := http.StripPrefix("/static/", http.FileServer(http.FS(s.StaticFS)))
 	r.Handle("/static/*", staticCacheHandler(staticHandler))
 
+	// Local Observable JS library mirror (offline OJS). Served from the operator-
+	// provided directory when configured; the rendered OJS pages point here
+	// instead of the Observable CDNs.
+	if s.Config.OJSLibsDir != "" {
+		libsHandler := http.StripPrefix("/ojs-libs/", http.FileServer(http.Dir(s.Config.OJSLibsDir)))
+		r.Handle("/ojs-libs/*", staticCacheHandler(libsHandler))
+	}
+
 	// Special routes (starting with /-/)
 	r.Route("/-", func(r chi.Router) {
 		// Public routes (no permission required)

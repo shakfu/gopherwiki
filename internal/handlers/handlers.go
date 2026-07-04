@@ -27,8 +27,12 @@ import (
 // optional and nil when computational pages are disabled or the toolchain is
 // absent.
 type RenderService interface {
-	// Available reports whether renders can be performed and cached.
+	// Available reports whether gated renders (code execution) can be performed
+	// and cached.
 	Available() bool
+	// ExportAvailable reports whether Quarto exports can be generated (needs only
+	// the toolchain, not the render cache or the execution feature flag).
+	ExportAvailable() bool
 	// Render executes a page and stores its output, returning the cache entry.
 	Render(ctx context.Context, in quarto.Input) (rendercache.Entry, error)
 	// Cached returns the stored render for a page's current source, if present.
@@ -207,9 +211,13 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name str
 
 // renderPage renders a wiki page.
 func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, page *wiki.Page) {
-	// Set ETag based on git commit revision for cache validation
+	// Set ETag based on git commit revision for cache validation. For a
+	// computational page the embedded iframe and its rendered output can change
+	// without a new commit (a re-render, or a render-pipeline change), so fold the
+	// render state into the ETag; otherwise a browser 304s and reuses stale page
+	// chrome after a re-render.
 	if page.Metadata != nil && page.Metadata.RevisionFull != "" {
-		etag := `"` + page.Metadata.RevisionFull + `"`
+		etag := `"` + page.Metadata.RevisionFull + s.renderETagSuffix(r.Context(), page) + `"`
 		w.Header().Set("ETag", etag)
 		w.Header().Set("Cache-Control", "no-cache")
 		if match := r.Header.Get("If-None-Match"); match == etag {
@@ -228,6 +236,22 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, page *wiki.P
 	}
 
 	s.renderTemplate(w, r, "page.html", data)
+}
+
+// renderETagSuffix returns an ETag suffix that reflects a computational page's
+// current render state, so its page-view ETag changes when the rendered output
+// (or the render pipeline) changes even though the source commit has not. It is
+// empty for plain pages and when computational rendering is unavailable. A cache
+// hit contributes the content-addressed render key; a miss contributes a
+// "pending" marker so the placeholder view revalidates once a render lands.
+func (s *Server) renderETagSuffix(ctx context.Context, page *wiki.Page) string {
+	if !page.IsComputational || s.RenderService == nil || !s.RenderService.Available() {
+		return ""
+	}
+	if entry, ok, err := s.RenderService.Cached(ctx, page.Content, pageEngine(page)); err == nil && ok {
+		return "-" + entry.Key
+	}
+	return "-pending"
 }
 
 // renderPageContent produces the main HTML content for a page view. Plain pages

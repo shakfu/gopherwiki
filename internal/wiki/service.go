@@ -11,10 +11,32 @@ import (
 
 	"github.com/sa/gopherwiki/internal/config"
 	"github.com/sa/gopherwiki/internal/db"
+	"github.com/sa/gopherwiki/internal/frontmatter"
 	"github.com/sa/gopherwiki/internal/renderer"
 	"github.com/sa/gopherwiki/internal/storage"
 	"github.com/sa/gopherwiki/internal/util"
 )
+
+// indexTitleAndBody derives the search title and the body to index for a page
+// from its raw stored content. The title prefers a frontmatter `title`, then the
+// first markdown heading, then the page name. The returned body has any YAML
+// frontmatter block removed so raw metadata is neither indexed into the FTS
+// table nor matched by brute-force search. Content without frontmatter is
+// returned unchanged.
+func indexTitleAndBody(pagepath, content string) (string, string) {
+	fm, body := frontmatter.Parse(content)
+	title := ""
+	if fm != nil {
+		title = fm.Title
+	}
+	if title == "" {
+		title = util.GetHeader(body)
+	}
+	if title == "" {
+		title = util.GetPagename(pagepath, false)
+	}
+	return title, body
+}
 
 // SearchResult represents a single search result.
 type SearchResult struct {
@@ -122,16 +144,12 @@ func (ws *WikiService) searchBruteForce(query string) ([]SearchResult, error) {
 			continue
 		}
 
-		matches := re.FindAllStringIndex(content, -1)
+		pagepath := util.StripMarkdownExtension(f)
+		pagename, body := indexTitleAndBody(pagepath, content)
+
+		matches := re.FindAllStringIndex(body, -1)
 		if len(matches) == 0 {
 			continue
-		}
-
-		pagepath := util.StripMarkdownExtension(f)
-		pagename := util.GetPagename(pagepath, false)
-
-		if header := util.GetHeader(content); header != "" {
-			pagename = header
 		}
 
 		results = append(results, SearchResult{
@@ -161,14 +179,11 @@ func (ws *WikiService) IndexPage(ctx context.Context, pagepath, content string) 
 	if ws.db == nil {
 		return nil
 	}
-	title := util.GetHeader(content)
-	if title == "" {
-		title = util.GetPagename(pagepath, false)
-	}
-	if err := ws.db.UpsertPageIndex(ctx, pagepath, title, content); err != nil {
+	title, body := indexTitleAndBody(pagepath, content)
+	if err := ws.db.UpsertPageIndex(ctx, pagepath, title, body); err != nil {
 		return err
 	}
-	targets := renderer.ExtractWikiLinks(content, ws.config.RetainPageNameCase)
+	targets := renderer.ExtractWikiLinks(body, ws.config.RetainPageNameCase)
 	return ws.db.UpsertPageLinks(ctx, pagepath, targets)
 }
 
@@ -213,16 +228,13 @@ func (ws *WikiService) EnsureSearchIndex(ctx context.Context) error {
 			continue
 		}
 		pagepath := util.StripMarkdownExtension(f)
-		title := util.GetHeader(content)
-		if title == "" {
-			title = util.GetPagename(pagepath, false)
-		}
+		title, body := indexTitleAndBody(pagepath, content)
 		pages = append(pages, db.PageIndexData{
 			Pagepath: pagepath,
 			Title:    title,
-			Content:  content,
+			Content:  body,
 		})
-		targets := renderer.ExtractWikiLinks(content, ws.config.RetainPageNameCase)
+		targets := renderer.ExtractWikiLinks(body, ws.config.RetainPageNameCase)
 		if len(targets) > 0 {
 			links = append(links, db.PageLinkData{
 				Source:  pagepath,

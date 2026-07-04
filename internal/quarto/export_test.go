@@ -66,6 +66,30 @@ func TestCapabilitiesExportFormats(t *testing.T) {
 	}
 }
 
+func TestServiceExportAvailableRequiresOptIn(t *testing.T) {
+	cache, err := rendercache.Open(":memory:")
+	if err != nil {
+		t.Fatalf("cache open: %v", err)
+	}
+	defer cache.Close()
+
+	// Toolchain present but export not enabled -> unavailable.
+	off := NewService(availableCaps(), cache, time.Second, 1)
+	if off.ExportAvailable() {
+		t.Error("ExportAvailable() should be false without WithExport")
+	}
+	// Explicitly enabled -> available.
+	on := NewService(availableCaps(), cache, time.Second, 1, WithExport(true))
+	if !on.ExportAvailable() {
+		t.Error("ExportAvailable() should be true with WithExport(true)")
+	}
+	// Enabled but no toolchain -> still unavailable.
+	noTool := NewService(Capabilities{Available: false}, cache, time.Second, 1, WithExport(true))
+	if noTool.ExportAvailable() {
+		t.Error("ExportAvailable() should be false without a toolchain")
+	}
+}
+
 func TestServiceExportUnknownFormat(t *testing.T) {
 	fr := &fakeHTMLRenderer{html: "x"}
 	s, _ := newServiceWithFake(t, fr, 1)
@@ -165,7 +189,15 @@ func TestIntegrationRealQuartoOJS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("real OJS render: %v", err)
 	}
-	if !strings.Contains(strings.ToLower(string(entry.HTML)), "observable") {
-		t.Errorf("rendered OJS page does not embed the Observable runtime; got %d bytes", len(entry.HTML))
+	// The runtime must be injected (Quarto's --embed-resources does not inline
+	// it), so window._ojs is defined and the cells can actually execute.
+	if caps.OJSRuntimePath == "" {
+		t.Skip("OJS runtime bundle not found next to quarto; skipping injection assertion")
+	}
+	if !strings.Contains(string(entry.HTML), ojsRuntimePresentMarker) {
+		t.Errorf("rendered OJS page is missing the injected runtime (%q); got %d bytes", ojsRuntimePresentMarker, len(entry.HTML))
+	}
+	if !strings.Contains(string(entry.HTML), ojsBootstrapMarker) {
+		t.Errorf("rendered OJS page is missing the OJS bootstrap")
 	}
 }

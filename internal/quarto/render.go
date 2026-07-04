@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/sa/gopherwiki/internal/rendercache"
@@ -131,27 +132,58 @@ type pageRenderer interface {
 // Renderer invokes Quarto to render a page source to a single self-contained
 // HTML document in an isolated temporary directory.
 type Renderer struct {
-	caps     Capabilities
-	runner   Runner
-	timeout  time.Duration
-	workRoot string // parent dir for temp work dirs ("" = os default)
+	caps        Capabilities
+	runner      Runner
+	timeout     time.Duration
+	workRoot    string // parent dir for temp work dirs ("" = os default)
+	ojsLibsBase string // when set, OJS CDN URLs are rewritten to this local base
+
+	// ojsOnce guards a one-time load of the OJS runtime bundle (caps.OJSRuntimePath)
+	// into ojsRuntime, used to make Observable JS cells executable in the
+	// self-contained render (Quarto's --embed-resources does not inline it).
+	ojsOnce    sync.Once
+	ojsRuntime []byte
 }
 
 // NewRenderer builds a Renderer using the real exec runner. interp optionally
-// pins the Python/R interpreters Quarto uses.
-func NewRenderer(caps Capabilities, timeout time.Duration, interp Interpreters) *Renderer {
+// pins the Python/R interpreters Quarto uses; ojsLibsBase, when non-empty,
+// rewrites OJS CDN URLs to that local base so libraries load from the wiki.
+func NewRenderer(caps Capabilities, timeout time.Duration, interp Interpreters, ojsLibsBase string) *Renderer {
 	if timeout <= 0 {
 		timeout = defaultTimeout
 	}
-	return &Renderer{caps: caps, runner: execRunner{interp: interp}, timeout: timeout}
+	return &Renderer{caps: caps, runner: execRunner{interp: interp}, timeout: timeout, ojsLibsBase: ojsLibsBase}
 }
 
 // RenderHTML writes the source into a fresh temp directory, runs
 // `quarto render ... --to html --embed-resources`, and returns the rendered
 // bytes. This is the gated computational render: code cells execute. The temp
-// directory (including any executed outputs) is always removed.
+// directory (including any executed outputs) is always removed. The OJS runtime
+// is injected into the result so Observable JS cells execute (see injectOJSRuntime).
 func (r *Renderer) RenderHTML(ctx context.Context, in Input) ([]byte, error) {
-	return r.renderToFile(ctx, in.Source, []string{"--to", "html", "--embed-resources"}, "index.html")
+	out, err := r.renderToFile(ctx, in.Source, []string{"--to", "html", "--embed-resources"}, "index.html")
+	if err != nil {
+		return nil, err
+	}
+	out = injectOJSRuntime(out, r.ojsRuntimeBundle())
+	out = rewriteOJSCDNs(out, r.ojsLibsBase)
+	return out, nil
+}
+
+// ojsRuntimeBundle lazily loads and caches Quarto's OJS runtime bundle. It
+// returns nil when the runtime path is unknown or unreadable, in which case OJS
+// injection is skipped (cells render as inert source; the rest of the page is
+// unaffected).
+func (r *Renderer) ojsRuntimeBundle() []byte {
+	r.ojsOnce.Do(func() {
+		if r.caps.OJSRuntimePath == "" {
+			return
+		}
+		if b, err := os.ReadFile(r.caps.OJSRuntimePath); err == nil {
+			r.ojsRuntime = b
+		}
+	})
+	return r.ojsRuntime
 }
 
 // RenderTo renders a page source to the given export format and returns the
@@ -209,11 +241,12 @@ func (r *Renderer) renderToFile(ctx context.Context, source string, extraArgs []
 // page's source to HTML, and stores the result in the render cache keyed by
 // content. It is safe for concurrent use.
 type Service struct {
-	caps        Capabilities
-	renderer    pageRenderer
-	cache       *rendercache.Cache
-	sem         chan struct{}
-	fingerprint string
+	caps          Capabilities
+	renderer      pageRenderer
+	cache         *rendercache.Cache
+	sem           chan struct{}
+	fingerprint   string
+	exportEnabled bool
 }
 
 // Option configures a Service at construction time.
@@ -221,13 +254,30 @@ type Option func(*serviceOptions)
 
 // serviceOptions holds the tunables an Option can set.
 type serviceOptions struct {
-	interp Interpreters
+	interp        Interpreters
+	exportEnabled bool
+	ojsLibsBase   string
 }
 
 // WithInterpreters pins the Python and/or R executables Quarto uses at render
 // time. Empty strings leave Quarto's own discovery in place.
 func WithInterpreters(interp Interpreters) Option {
 	return func(o *serviceOptions) { o.interp = interp }
+}
+
+// WithExport enables Quarto-produced page export (PDF/HTML/DOCX/EPUB/GFM). It is
+// off by default so that merely having the toolchain present does not expose
+// export endpoints; the operator opts in explicitly.
+func WithExport(enabled bool) Option {
+	return func(o *serviceOptions) { o.exportEnabled = enabled }
+}
+
+// WithOJSLocalLibs makes rendered OJS pages load their Observable/jsDelivr
+// libraries from base (a local URL path the wiki serves the mirror at, e.g.
+// "/ojs-libs") instead of the external CDNs, for offline/air-gapped operation.
+// Empty leaves the CDN default in place.
+func WithOJSLocalLibs(base string) Option {
+	return func(o *serviceOptions) { o.ojsLibsBase = base }
 }
 
 // NewService constructs a Service. concurrency <= 0 uses the default. A nil
@@ -241,18 +291,34 @@ func NewService(caps Capabilities, cache *rendercache.Cache, timeout time.Durati
 	for _, opt := range opts {
 		opt(&o)
 	}
+	// Local-libs mode changes the rendered URLs, so fold it into the cache
+	// fingerprint to invalidate output produced in the other mode.
+	fingerprint := caps.Fingerprint()
+	if o.ojsLibsBase != "" {
+		fingerprint += "/ojslocal"
+	}
 	return &Service{
-		caps:        caps,
-		renderer:    NewRenderer(caps, timeout, o.interp),
-		cache:       cache,
-		sem:         make(chan struct{}, concurrency),
-		fingerprint: caps.Fingerprint(),
+		caps:          caps,
+		renderer:      NewRenderer(caps, timeout, o.interp, o.ojsLibsBase),
+		cache:         cache,
+		sem:           make(chan struct{}, concurrency),
+		fingerprint:   fingerprint,
+		exportEnabled: o.exportEnabled,
 	}
 }
 
-// Available reports whether renders can be performed and cached.
+// Available reports whether gated renders (code execution) can be performed and
+// cached. This requires both a usable toolchain and a render cache.
 func (s *Service) Available() bool {
 	return s.caps.Available && s.cache != nil
+}
+
+// ExportAvailable reports whether Quarto-produced exports can be generated. This
+// requires a usable toolchain and that export was explicitly enabled; it does
+// not require the render cache (export runs with --no-execute and does not touch
+// the cache), so it is decoupled from gated execution.
+func (s *Service) ExportAvailable() bool {
+	return s.caps.Available && s.exportEnabled
 }
 
 // CachedKey returns the cache key a page's current source maps to.

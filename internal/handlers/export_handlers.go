@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/sa/gopherwiki/internal/quarto"
+	"github.com/sa/gopherwiki/internal/renderer"
 	"github.com/sa/gopherwiki/internal/wiki"
 )
 
@@ -31,7 +32,7 @@ type exportLink struct {
 // offered only when the render service (and thus the toolchain) is present.
 func (s *Server) exportFormatLinks() []exportLink {
 	links := []exportLink{}
-	if s.RenderService != nil && s.RenderService.Available() {
+	if s.RenderService != nil && s.RenderService.ExportAvailable() {
 		for _, f := range s.RenderService.ExportFormats() {
 			links = append(links, exportLink{Format: f.Name, Label: f.Label})
 		}
@@ -77,7 +78,7 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.RenderService == nil || !s.RenderService.Available() {
+	if s.RenderService == nil || !s.RenderService.ExportAvailable() {
 		s.renderError(w, r, http.StatusNotImplemented, "Export is not enabled on this instance")
 		return
 	}
@@ -87,9 +88,15 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Rewrite GopherWiki-specific markdown (wikilinks, mermaid fences, ==marks==)
+	// into constructs Quarto/Pandoc understand, so the export keeps its meaning
+	// instead of emitting raw wiki syntax. Mermaid diagrams are only rewritten for
+	// HTML (client-side rendering); other formats would need a headless browser,
+	// so their mermaid blocks stay as code listings rather than failing the export.
+	source := renderer.PrepareExportSource(page.Content, s.Config.SiteURL, format == "html")
 	in := quarto.Input{
 		Pagepath:       page.Pagepath,
-		Source:         page.Content,
+		Source:         source,
 		Engine:         pageEngine(page),
 		SourceRevision: pageRevision(page),
 	}

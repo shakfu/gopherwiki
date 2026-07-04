@@ -12,16 +12,45 @@ import (
 	"github.com/sa/gopherwiki/internal/wiki"
 )
 
-// renderedContentSecurityPolicy is the CSP applied to the raw rendered-output
-// response. Quarto's self-contained HTML inlines its scripts, styles, and
-// resources (as data: URIs) and some libraries use eval, so this document needs
-// a far more permissive policy than the rest of the app. It is scoped to the
-// iframe document only; the surrounding wiki page keeps the strict policy.
-const renderedContentSecurityPolicy = "default-src 'self' data: blob:; " +
-	"script-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; " +
-	"style-src 'self' 'unsafe-inline' data:; " +
-	"img-src 'self' data: blob:; font-src 'self' data:; " +
-	"connect-src 'self' data: blob:; frame-ancestors 'self'"
+// ojsCDNs are the content-delivery origins the Observable JS runtime loads from
+// at view time. OJS is not fully self-contained: its standard library (Inputs,
+// md/marked, etc.), FileAttachment resolution, and imported notebooks are fetched
+// from these origins on demand, so they must be allowed for OJS cells to work.
+// This is acceptable under the trusted-editing-team model (readers' browsers
+// fetch from these well-known Observable/jsDelivr origins); it also means OJS
+// pages, unlike frozen Python/R output, require network access when viewed.
+const ojsCDNs = "https://cdn.jsdelivr.net https://cdn.observableusercontent.com https://api.observablehq.com"
+
+// buildRenderedCSP is the CSP applied to the raw rendered-output response. Quarto's
+// self-contained HTML inlines its scripts, styles, and resources (as data: URIs)
+// and some libraries use eval, so this document needs a far more permissive
+// policy than the rest of the app. cdnAllow optionally widens it to the
+// Observable CDNs so OJS cells can load their libraries; in local-libs mode it is
+// empty and the libraries load from the wiki's own origin. Scoped to the iframe
+// document only; the surrounding wiki page keeps the strict policy.
+func buildRenderedCSP(cdnAllow string) string {
+	return "default-src 'self' data: blob:; " +
+		"script-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:" + cdnAllow + "; " +
+		"style-src 'self' 'unsafe-inline' data:" + cdnAllow + "; " +
+		"img-src 'self' data: blob:" + cdnAllow + "; font-src 'self' data:" + cdnAllow + "; " +
+		"connect-src 'self' data: blob:" + cdnAllow + "; frame-ancestors 'self'"
+}
+
+var (
+	// renderedCSPWithCDN allows the Observable CDNs (default OJS mode).
+	renderedCSPWithCDN = buildRenderedCSP(" " + ojsCDNs)
+	// renderedCSPLocal keeps everything same-origin (OJS local-libs mode).
+	renderedCSPLocal = buildRenderedCSP("")
+)
+
+// renderedContentSecurityPolicy returns the CSP for rendered output, allowing the
+// Observable CDNs only when OJS libraries are not mirrored locally.
+func (s *Server) renderedContentSecurityPolicy() string {
+	if s.Config.OJSLibsDir != "" {
+		return renderedCSPLocal
+	}
+	return renderedCSPWithCDN
+}
 
 // handleRender is the authenticated, gated render action for a computational
 // (.qmd) page. It executes the page's code via Quarto and stores the resulting
@@ -100,7 +129,7 @@ func (s *Server) handleRendered(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Content-Security-Policy", renderedContentSecurityPolicy)
+	w.Header().Set("Content-Security-Policy", s.renderedContentSecurityPolicy())
 	w.Header().Set("ETag", etag)
 	w.Header().Set("Cache-Control", "private, no-cache")
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(entry.HTML)))
@@ -109,13 +138,24 @@ func (s *Server) handleRendered(w http.ResponseWriter, r *http.Request) {
 
 // computationalIframe returns the iframe markup that embeds a computational
 // page's rendered output (served by handleRendered) inside the wiki chrome.
-// The iframe is sandboxed to run scripts (Quarto output is interactive) without
-// same-origin access to the wiki session.
+//
+// The iframe is sandboxed to allow scripts (Quarto output is interactive, e.g.
+// Observable JS, plotly, mermaid) and same-origin. allow-same-origin is required
+// for the Observable runtime to execute -- its inline `<script type="module">`
+// blocks do not run in an opaque-origin (sandbox-without-same-origin) frame, so
+// OJS cells would otherwise render as inert source text. Because the frame is
+// same-origin with the wiki, allow-same-origin + allow-scripts lets the rendered
+// document's author-authored JavaScript reach the wiki origin (DOM, non-HttpOnly
+// cookies, session-authenticated fetches). This is acceptable only under the
+// trusted-editing-team model this feature already assumes (see
+// docs/computational-pages.md Section 7, where OJS is explicitly "trusted author
+// JavaScript"). The hardened alternative -- serving rendered output from a
+// separate origin so allow-same-origin cannot reach the wiki -- is deferred.
 func computationalIframe(pageViewURL string) string {
 	src := html.EscapeString(pageViewURL + "/rendered")
 	return `<iframe class="computational-render" src="` + src + `" ` +
 		`title="Rendered computational output" loading="lazy" ` +
-		`sandbox="allow-scripts allow-popups allow-downloads" ` +
+		`sandbox="allow-scripts allow-same-origin allow-popups allow-downloads" ` +
 		`style="width:100%;min-height:80vh;border:0;"></iframe>`
 }
 

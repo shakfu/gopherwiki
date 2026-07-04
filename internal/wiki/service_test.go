@@ -296,6 +296,90 @@ func TestFTS5Search_FallbackOnEmpty(t *testing.T) {
 	}
 }
 
+func TestIndexTitleAndBody(t *testing.T) {
+	cases := []struct {
+		name      string
+		pagepath  string
+		content   string
+		wantTitle string
+		wantBody  string
+	}{
+		{
+			name:      "frontmatter title preferred over heading",
+			pagepath:  "report",
+			content:   "---\ntitle: Quarterly Report\n---\n# Different Heading\nbody\n",
+			wantTitle: "Quarterly Report",
+			wantBody:  "# Different Heading\nbody\n",
+		},
+		{
+			name:      "heading used when no frontmatter title",
+			pagepath:  "notes",
+			content:   "# My Notes\ntext\n",
+			wantTitle: "My Notes",
+			wantBody:  "# My Notes\ntext\n",
+		},
+		{
+			name:      "frontmatter stripped even without a title key",
+			pagepath:  "data",
+			content:   "---\nengine: jupyter\n---\n# Data\nrows\n",
+			wantTitle: "Data",
+			wantBody:  "# Data\nrows\n",
+		},
+		{
+			name:      "pagename fallback when neither present",
+			pagepath:  "plain",
+			content:   "just text, no heading\n",
+			wantTitle: "plain",
+			wantBody:  "just text, no heading\n",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			title, body := indexTitleAndBody(tc.pagepath, tc.content)
+			if title != tc.wantTitle {
+				t.Errorf("title = %q, want %q", title, tc.wantTitle)
+			}
+			if body != tc.wantBody {
+				t.Errorf("body = %q, want %q", body, tc.wantBody)
+			}
+		})
+	}
+}
+
+func TestIndexPagePrefersFrontmatterTitleAndStripsBlock(t *testing.T) {
+	ws, cleanup := setupTestService(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// A page whose frontmatter carries the title and a unique key that must NOT
+	// be indexed, plus a unique body word that must be.
+	content := "---\ntitle: Fancy Title\nsecretkey: zzentry\n---\n# Ignored Heading\nThe body mentions quokka.\n"
+	if err := ws.IndexPage(ctx, "fancy", content); err != nil {
+		t.Fatalf("IndexPage failed: %v", err)
+	}
+
+	// Body content is searchable...
+	results, err := ws.Search(ctx, "quokka")
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result for body word, got %d", len(results))
+	}
+	if results[0].Pagename != "Fancy Title" {
+		t.Errorf("title = %q, want frontmatter title %q", results[0].Pagename, "Fancy Title")
+	}
+
+	// ...but the frontmatter block is not indexed.
+	res, err := ws.Search(ctx, "zzentry")
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(res) != 0 {
+		t.Errorf("frontmatter content should not be indexed, got %d results for a frontmatter-only word", len(res))
+	}
+}
+
 func TestFTS5_IndexAndRemove(t *testing.T) {
 	ws, cleanup := setupTestService(t)
 	defer cleanup()

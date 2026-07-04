@@ -16,15 +16,18 @@ import (
 // fakeRenderService implements RenderService for handler tests without invoking
 // Quarto.
 type fakeRenderService struct {
-	available   bool
-	calls       int
-	lastInput   quarto.Input
-	err         error
-	cachedEntry rendercache.Entry
-	cachedOK    bool
+	available       bool // gated execution available
+	exportAvailable bool // export available (toolchain present)
+	calls           int
+	lastInput       quarto.Input
+	lastExportInput quarto.Input
+	err             error
+	cachedEntry     rendercache.Entry
+	cachedOK        bool
 }
 
-func (f *fakeRenderService) Available() bool { return f.available }
+func (f *fakeRenderService) Available() bool       { return f.available }
+func (f *fakeRenderService) ExportAvailable() bool { return f.exportAvailable }
 
 func (f *fakeRenderService) Render(ctx context.Context, in quarto.Input) (rendercache.Entry, error) {
 	f.calls++
@@ -42,6 +45,7 @@ func (f *fakeRenderService) Cached(ctx context.Context, source, engine string) (
 func (f *fakeRenderService) Invalidate(ctx context.Context, pagepath string) error { return nil }
 
 func (f *fakeRenderService) Export(ctx context.Context, in quarto.Input, format string) ([]byte, quarto.ExportFormat, error) {
+	f.lastExportInput = in
 	if f.err != nil {
 		return nil, quarto.ExportFormat{}, f.err
 	}
@@ -49,7 +53,10 @@ func (f *fakeRenderService) Export(ctx context.Context, in quarto.Input, format 
 }
 
 func (f *fakeRenderService) ExportFormats() []quarto.ExportFormat {
-	return []quarto.ExportFormat{{Name: "pdf", Label: "PDF", Ext: "pdf", MediaType: "application/pdf"}}
+	return []quarto.ExportFormat{
+		{Name: "pdf", Label: "PDF", Ext: "pdf", MediaType: "application/pdf"},
+		{Name: "gfm", Label: "Markdown (GFM)", Ext: "md", MediaType: "text/markdown; charset=utf-8"},
+	}
 }
 
 var author = storage.Author{Name: "test", Email: "test@test.com"}
@@ -106,6 +113,45 @@ func TestRenderEndpointRendersComputationalPage(t *testing.T) {
 	}
 	if loc := w.Header().Get("Location"); loc != "/analysis" {
 		t.Errorf("redirect Location = %q, want /analysis", loc)
+	}
+}
+
+func TestComputationalPageETagIncludesRenderKey(t *testing.T) {
+	env := testutil.SetupTestEnv(t)
+	env.Store.StoreBytes("analysis.qmd", []byte("---\nengine: jupyter\n---\n# A\n"), "init", author)
+	env.Server.RenderService = &fakeRenderService{
+		available:   true,
+		cachedOK:    true,
+		cachedEntry: rendercache.Entry{Key: "RKEY"},
+	}
+
+	req := httptest.NewRequest("GET", "/analysis", nil)
+	w := httptest.NewRecorder()
+	env.Router.ServeHTTP(w, req)
+
+	etag := w.Header().Get("ETag")
+	if !strings.Contains(etag, "-RKEY") {
+		t.Fatalf("computational page ETag = %q, want it to include the render key", etag)
+	}
+
+	// The full render-aware ETag revalidates to 304...
+	req2 := httptest.NewRequest("GET", "/analysis", nil)
+	req2.Header.Set("If-None-Match", etag)
+	w2 := httptest.NewRecorder()
+	env.Router.ServeHTTP(w2, req2)
+	if w2.Code != http.StatusNotModified {
+		t.Errorf("matching render-aware ETag should 304, got %d", w2.Code)
+	}
+
+	// ...but a stale bare-revision ETag (pre-render-aware) must NOT 304, so a
+	// browser holding stale page chrome refetches after a re-render.
+	bare := `"` + strings.TrimSuffix(strings.TrimPrefix(etag, `"`), `-RKEY"`) + `"`
+	req3 := httptest.NewRequest("GET", "/analysis", nil)
+	req3.Header.Set("If-None-Match", bare)
+	w3 := httptest.NewRecorder()
+	env.Router.ServeHTTP(w3, req3)
+	if w3.Code == http.StatusNotModified {
+		t.Errorf("stale bare-revision ETag %q should not 304", bare)
 	}
 }
 

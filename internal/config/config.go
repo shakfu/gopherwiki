@@ -93,12 +93,14 @@ type Config struct {
 	// Computational page (Quarto) rendering. Optional and feature-detected; see
 	// docs/computational-pages.md.
 	QuartoEnabled     bool   // Enable gated rendering of .qmd computational pages
+	ExportEnabled     bool   // Enable Quarto-produced page export (PDF/HTML/DOCX/EPUB/GFM); Markdown ZIP is always available
 	QuartoPath        string // quarto binary name or path
 	RenderTimeoutSecs int    // Wall-clock limit for a single render
 	RenderConcurrency int    // Max concurrent renders
 	RenderCachePath   string // Render cache DB path ("" derives a sibling of the primary DB)
 	RenderPython      string // Pin the Python interpreter for renders (-> QUARTO_PYTHON); "" = discover
 	RenderR           string // Pin the R interpreter for renders (-> QUARTO_R); "" = discover
+	OJSLibsDir        string // Local mirror of the Observable JS libraries; when set, OJS pages load libs from the wiki (offline) instead of the CDNs
 }
 
 // Default returns a Config with default values.
@@ -162,12 +164,14 @@ func Default() *Config {
 		IssueTags:       "bug,feature,improvement,question,documentation",
 		IssueCategories: "", // Empty by default - no categories required
 		QuartoEnabled:     false,
+		ExportEnabled:     false,
 		QuartoPath:        "quarto",
 		RenderTimeoutSecs: 120,
 		RenderConcurrency: 2,
 		RenderCachePath:   "",
 		RenderPython:      "",
 		RenderR:           "",
+		OJSLibsDir:        "",
 	}
 }
 
@@ -298,12 +302,14 @@ func (c *Config) LoadFromEnv() {
 	c.IssueCategories = getEnv("ISSUE_CATEGORIES", c.IssueCategories)
 
 	c.QuartoEnabled = getEnvBool("COMPUTATIONAL_PAGES_ENABLED", c.QuartoEnabled)
+	c.ExportEnabled = getEnvBool("EXPORT_ENABLED", c.ExportEnabled)
 	c.QuartoPath = getEnv("QUARTO_PATH", c.QuartoPath)
 	c.RenderTimeoutSecs = getEnvInt("RENDER_TIMEOUT_SECONDS", c.RenderTimeoutSecs)
 	c.RenderConcurrency = getEnvInt("RENDER_CONCURRENCY", c.RenderConcurrency)
 	c.RenderCachePath = getEnv("RENDER_CACHE_PATH", c.RenderCachePath)
 	c.RenderPython = getEnv("RENDER_PYTHON", c.RenderPython)
 	c.RenderR = getEnv("RENDER_R", c.RenderR)
+	c.OJSLibsDir = getEnv("OJS_LIBS_DIR", c.OJSLibsDir)
 }
 
 // Validate checks that required configuration is set.

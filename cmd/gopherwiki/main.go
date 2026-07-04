@@ -99,34 +99,55 @@ func isLoopbackHost(host string) bool {
 	}
 }
 
-// setupRenderService detects the Quarto toolchain and, when available, wires the
-// computational-page render service (with its own render cache database) onto
-// the server. Absence of the toolchain is logged and left non-fatal: the wiki
-// runs normally and .qmd pages show the render-pending placeholder.
+// setupRenderService detects the Quarto toolchain and wires the quarto service
+// onto the server. It provides two independent capability tiers:
+//
+//   - Export (PDF/HTML/DOCX/EPUB/GFM) is available whenever quarto is detected.
+//     It runs with --no-execute and needs no render cache, so it does not
+//     require the COMPUTATIONAL_PAGES_ENABLED flag.
+//   - Gated execution of .qmd pages (the render endpoint and cached serving)
+//     additionally requires COMPUTATIONAL_PAGES_ENABLED and a render cache.
+//
+// Everything is feature-detected and non-fatal: without quarto, export falls
+// back to the pure-Go Markdown ZIP and .qmd pages show the render-pending
+// placeholder.
 func setupRenderService(server *handlers.Server, cfg *config.Config) {
 	caps := quarto.Detect(context.Background(), cfg.QuartoPath)
 	if !caps.Available {
-		slog.Warn("computational pages enabled but quarto was not found; .qmd pages will show the render-pending placeholder",
+		slog.Warn("quarto features enabled but quarto was not found; .qmd pages show the render-pending placeholder and Quarto export is unavailable",
 			"quarto_path", cfg.QuartoPath)
 		return
 	}
 
-	cachePath := cfg.RenderCachePath
-	if cachePath == "" {
-		cachePath = rendercache.DefaultPath(sqlitePath(cfg.DatabaseURI))
-	}
-	cache, err := rendercache.Open(cachePath)
-	if err != nil {
-		slog.Error("failed to open render cache; computational rendering disabled", "path", cachePath, "error", err)
-		return
+	// The render cache backs gated execution only. Open it just when execution
+	// is enabled; export works without it. A cache-open failure disables
+	// execution but leaves export available.
+	var cache *rendercache.Cache
+	if cfg.QuartoEnabled {
+		cachePath := cfg.RenderCachePath
+		if cachePath == "" {
+			cachePath = rendercache.DefaultPath(sqlitePath(cfg.DatabaseURI))
+		}
+		c, err := rendercache.Open(cachePath)
+		if err != nil {
+			slog.Error("failed to open render cache; computational execution disabled (export still available)", "path", cachePath, "error", err)
+		} else {
+			cache = c
+		}
 	}
 
 	timeout := time.Duration(cfg.RenderTimeoutSecs) * time.Second
 	interp := quarto.Interpreters{Python: cfg.RenderPython, R: cfg.RenderR}
-	server.RenderService = quarto.NewService(caps, cache, timeout, cfg.RenderConcurrency, quarto.WithInterpreters(interp))
-	slog.Info("computational page rendering enabled",
-		"quarto_version", caps.Version, "render_cache", cachePath, "concurrency", cfg.RenderConcurrency,
-		"render_python", orDiscover(cfg.RenderPython), "render_r", orDiscover(cfg.RenderR))
+	opts := []quarto.Option{quarto.WithInterpreters(interp), quarto.WithExport(cfg.ExportEnabled)}
+	if cfg.OJSLibsDir != "" {
+		opts = append(opts, quarto.WithOJSLocalLibs("/ojs-libs"))
+	}
+	server.RenderService = quarto.NewService(caps, cache, timeout, cfg.RenderConcurrency, opts...)
+	slog.Info("quarto support enabled",
+		"quarto_version", caps.Version, "execution_enabled", cache != nil, "export_enabled", cfg.ExportEnabled,
+		"concurrency", cfg.RenderConcurrency,
+		"render_python", orDiscover(cfg.RenderPython), "render_r", orDiscover(cfg.RenderR),
+		"ojs_local_libs", cfg.OJSLibsDir != "")
 }
 
 // sqlitePath extracts a filesystem path from a sqlite database URI. It mirrors
@@ -286,10 +307,12 @@ func main() {
 		fatal("failed to create server", "error", err)
 	}
 
-	// Optionally enable computational-page rendering (Quarto). Feature-detected:
-	// if the toolchain is absent the wiki runs unchanged and .qmd pages show the
-	// render-pending placeholder.
-	if cfg.QuartoEnabled {
+	// Wire Quarto support only when the operator opts into a Quarto feature:
+	// COMPUTATIONAL_PAGES_ENABLED (gated .qmd execution) and/or EXPORT_ENABLED
+	// (Quarto page export). This avoids spawning quarto detection at startup, and
+	// exposing export endpoints, on hosts that merely happen to have quarto on
+	// PATH. Feature-detected and non-fatal; Markdown ZIP export works regardless.
+	if cfg.QuartoEnabled || cfg.ExportEnabled {
 		setupRenderService(server, cfg)
 	}
 
