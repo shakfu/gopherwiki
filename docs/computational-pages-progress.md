@@ -15,10 +15,12 @@ Last updated: 2026-07-04.
 | 3 | Separate SQLite render cache (`internal/rendercache`) | **Done** |
 | 4 | Gated Quarto render + endpoint (`internal/quarto`, config, handler) | **Done** |
 | 5 | Serve cached output via iframe (`/{path}/rendered`, view branch) | **Done** |
-| 6 | Observable JS (client-side tier) | Not started |
-| -- | Export (PDF / DOCX / EPUB / Markdown ZIP) | Not started |
+| 6 | Observable JS (client-side tier) | **Done** (no server code needed -- see below) |
+| -- | Export (PDF / HTML / DOCX / EPUB / GFM / Markdown ZIP) | **Done** |
 
 `make test` is green across all 13 packages; `go vet -tags fts5 ./...` is clean.
+The quarto package's integration tests now execute real `quarto` renders (they
+skip when the binary is absent): plain HTML, OJS, and PDF/GFM export.
 Build/test require the `fts5` build tag (already in the Makefile: `TAGS := -tags fts5`).
 
 All work is **uncommitted** in the working tree (per project rule: the user
@@ -64,7 +66,9 @@ reader `GET /{path}` embeds `GET /{path}/rendered` in an iframe.
 - `internal/quarto/detect.go` -- `Detect(ctx, path)` (feature-detect via
   `quarto --version`), `Capabilities`, `Fingerprint()`.
 - `internal/quarto/render.go` -- `Runner` interface (exec seam) + `execRunner`
-  with `renderEnv()` (minimal env, no app secrets); `Renderer.RenderHTML`
+  with `renderEnv(interp)` (allowlisted env, no app secrets; forwards
+  `QUARTO_PYTHON`/`QUARTO_R`/`QUARTO_R_HOME` and applies explicit overrides);
+  `Interpreters` + `WithInterpreters` option; `Renderer.RenderHTML`
   (temp-dir isolation, `quarto render --to html --embed-resources`, cleanup);
   `Service` (concurrency semaphore, cache write) with `Render`, `Cached`,
   `CachedKey`, `Invalidate`, `Available`.
@@ -78,7 +82,7 @@ reader `GET /{path}` embeds `GET /{path}/rendered` in an iframe.
   `POST /{path}/render` (write group).
 - `internal/config/config.go` -- fields + env: `COMPUTATIONAL_PAGES_ENABLED`,
   `QUARTO_PATH`, `RENDER_TIMEOUT_SECONDS`, `RENDER_CONCURRENCY`,
-  `RENDER_CACHE_PATH`.
+  `RENDER_CACHE_PATH`, `RENDER_PYTHON`, `RENDER_R`.
 - `cmd/gopherwiki/main.go` -- `setupRenderService` (detect, open cache, wire
   service; non-fatal if absent), `sqlitePath`.
 
@@ -89,6 +93,52 @@ reader `GET /{path}` embeds `GET /{path}/rendered` in an iframe.
 - `GET /{path}/rendered` -- read-gated. Serves cached self-contained HTML with a
   relaxed CSP and ETag (= cache key, 304-capable). 404 on miss / non-computational
   / disabled. Never triggers a render.
+
+## Phase 6 -- Observable JS (client-side tier)
+
+OJS needs **no new server code**. Because a `.qmd` page is rendered by Quarto to
+self-contained HTML (`--embed-resources`) and served inside the iframe, Quarto
+already compiles `{ojs}` cells to client-side JavaScript and embeds the
+Observable runtime in the output. The iframe sandbox grants `allow-scripts`, and
+the relaxed CSP on `/{path}/rendered` already permits the `unsafe-inline` /
+`unsafe-eval` the runtime uses. A pure-OJS page also needs no server engine
+(no Jupyter/knitr), so it renders even on a host without a language runtime.
+
+Verified by `TestIntegrationRealQuartoOJS` (skips without quarto): an `{ojs}`
+page renders and the Observable runtime is present in the output.
+
+Known limitation: the rendered-output CSP keeps `connect-src` scoped to
+`'self' data: blob:`. A *standalone* OJS page that fetches its own data from an
+external origin (e.g. `d3.csv("https://...")`) is therefore blocked. This is a
+deliberate anti-exfiltration default; relaxing it is a per-deployment security
+decision, not enabled by default.
+
+## Export (PDF / HTML / DOCX / EPUB / GFM / Markdown ZIP)
+
+- `internal/quarto/export.go` -- `ExportFormat` registry (`pdf`=typst-pdf,
+  `html`, `docx`, `epub`, `gfm`), `Capabilities.ExportFormats()` (returns the
+  set when quarto is available -- Typst and Pandoc ship bundled inside quarto,
+  so quarto-present implies all formats producible), `Service.Export`,
+  `Service.ExportFormats`. Exports are produced on demand and **not cached**.
+- `internal/quarto/render.go` -- `RenderHTML` and the new `RenderTo` now share a
+  `renderToFile` core. `RenderTo` always passes `--no-execute` so export never
+  runs page code (export must not be a backdoor around gated execution);
+  `--embed-resources` is added only for HTML.
+- `internal/handlers/export_handlers.go` -- `handleExport` (`GET
+  /{path}/export?format=<name>`, read-gated). Markdown ZIP (`md-zip`) is
+  produced in-process with `archive/zip` (page source + attachments) and needs
+  **no toolchain**, so it works even when the render service is absent. Quarto
+  formats require the render service; an unknown format is a 400, a missing one
+  a 400, a Quarto format with no service a 501.
+- `internal/handlers/routes.go` -- `GET /{path}/export` (read group) + `export`
+  entry in `RouteMap`.
+- `web/templates/page.html` -- an "Export as" section in the page dropdown,
+  populated from `data["export_formats"]` (md-zip always; Quarto formats when
+  available).
+
+Live-verified against the running binary: md-zip (zip with the source), gfm
+(markdown), pdf (`%PDF-1.7`, `Content-Disposition: report.pdf`), docx (valid
+`PK` zip), plus the dropdown listing all six formats.
 
 ## Pre-existing issues found and fixed (working tree)
 
@@ -108,12 +158,26 @@ double-submit) -> 302; `/rendered` -> 200 self-contained HTML (~1.18 MB, correct
 DOCTYPE); iframe embedding after render; relaxed CSP + ETag headers; 304
 revalidation; 403 when POSTing render without a CSRF token.
 
-**Execution gap:** neither engine's runtime is installed on this machine --
-Jupyter is absent, and R lacks `rmarkdown`/`knitr`. An `{r}` render therefore
-failed with a clean 500 (nothing cached, error logged) -- the failure path is
-correct, but an actual code cell executing + embedding output was **not** yet
-demonstrated end-to-end. To close this: `python3 -m pip install jupyter` (fast)
-or R `install.packages("rmarkdown")` (slow, compiles).
+**Execution gap -- CLOSED for Python (2026-07-04).** Jupyter was installed into
+a project venv (`uv add jupyter`), and a real `{python}` page was rendered
+end-to-end through the gated `POST /render`: the cells executed and their
+computed output (`The answer is 42` from a `print`, `385` from
+`sum(i**2 for i in range(1,11))`) appeared in the served `/rendered` HTML
+(~1.18 MB, 200). This used the minimal `renderEnv()` allowlist unchanged -- the
+venv's Python was discovered via the forwarded `PATH` (the server was started
+with `.venv/bin` on `PATH`); no `QUARTO_PYTHON` was needed. R execution remains
+undemonstrated: R is present but lacks `knitr`/`rmarkdown`/`reticulate`
+(`install.packages("knitr")` compiles, slow).
+
+Interpreter pinning (implemented 2026-07-04): `renderEnv()` now also forwards
+`QUARTO_PYTHON`, `QUARTO_R`, `QUARTO_R_HOME` from the server environment when
+present, and two config keys pin them explicitly: `RENDER_PYTHON` (->
+`QUARTO_PYTHON`) and `RENDER_R` (-> `QUARTO_R`), threaded via
+`quarto.WithInterpreters`. Explicit config overrides ambient. Verified
+end-to-end: with the venv **absent from PATH**, `RENDER_PYTHON=.../.venv/bin/python`
+alone made a real `{python}` render succeed (302 -> 200, computed output present).
+Application secrets still never reach the render subprocess (the env is a strict
+allowlist). `RENDER_R` remains untested for lack of `knitr` on this host.
 
 ### Reproduce the live run
 
@@ -149,29 +213,32 @@ a persistent cache.
   block from the FTS index. Minor follow-up.
 - **Frozen-output embedding** is iframe-only (design Section 5.3 Option A);
   splice-into-chrome (Option B) not done.
+- **Export capability is coupled to the computational-pages flag.** Quarto-based
+  export is offered only when the render service is wired, i.e. when
+  `COMPUTATIONAL_PAGES_ENABLED=1` and quarto is detected -- even though export
+  runs `--no-execute` and never executes code. Decoupling export from the
+  compute flag (so PDF/DOCX export could be enabled without enabling gated
+  execution) is a possible refinement. Markdown ZIP is already independent.
+- **Export re-renders from source with `--no-execute`.** A computational page
+  exported to PDF/DOCX therefore shows its code cells but not their computed
+  output (the cached executed HTML is not reused for non-HTML formats). Wiring
+  `freeze`/`_freeze/` would let export reuse frozen results; deferred.
+- **Export fidelity for wiki-specific markdown.** Export runs the raw source
+  through Quarto/Pandoc, which does not understand GopherWiki extensions
+  (`[[wikilinks]]`, the mermaid/mathjax wiring goldmark applies). Plain prose,
+  headings, lists, tables, code, and images export faithfully; wiki-specific
+  constructs may not. Markdown ZIP sidesteps this by shipping the raw source.
 
 ## Next steps to resume
 
-1. **Commit** the Phase 1-5 work (user action). Remember `git add
-   cmd/gopherwiki/syntax_guide.md` (newly un-ignored) alongside the new packages
-   and modified files.
-2. **Phase 6 (OJS)**: enable the client-side Observable runtime in served output
-   and wire the `ojs_define` data bridge. Cheap; no server engine.
-3. **Export**: format-parameterized `quarto render --to <token>` against a
-   capability-gated allowlist (default `pdf, html, docx, epub, gfm`), plus a
-   pure-Go Markdown ZIP (`archive/zip`). See design Section 6.
-4. Optional: install a language runtime and demonstrate real code execution
-   end-to-end (currently blocked by environment, see above).
+The Quarto feature (Phases 1-6 + export) is complete and green. Remaining
+optional follow-ups:
 
-## Uncommitted files (as of handoff)
-
-New: `internal/frontmatter/`, `internal/rendercache/`, `internal/quarto/`,
-`internal/handlers/render_handlers.go` (+`_test.go`),
-`internal/wiki/page_test.go`, `docs/computational-pages.md`,
-`docs/computational-pages-progress.md`, `cmd/gopherwiki/syntax_guide.md` (restored).
-
-Modified: `.gitignore`, `go.mod`, `go.sum`, `internal/util/util.go` (+test),
-`internal/wiki/page.go`, `internal/wiki/service.go`,
-`internal/handlers/feed_handlers.go`, `internal/handlers/handlers.go`,
-`internal/handlers/routes.go`, `internal/config/config.go`,
-`cmd/gopherwiki/main.go`, `TODO.md`.
+1. Demonstrate real `{r}` execution once `knitr`/`rmarkdown` are installed
+   (Python is verified end-to-end incl. `RENDER_PYTHON` pinning; only R remains
+   unexercised here). `RENDER_R` is wired but untested for lack of knitr.
+2. Consider the other refinements above (decouple export from the compute flag;
+   reuse frozen output for non-HTML export; improve export fidelity for
+   wikilinks).
+3. Design Section 5.3 Option B (splice rendered output into the wiki chrome
+   instead of an iframe), if unified theming becomes a priority.

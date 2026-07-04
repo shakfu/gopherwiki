@@ -57,6 +57,69 @@ func availableCaps() Capabilities {
 	return Capabilities{Available: true, Version: "1.9.37", Path: "/usr/local/bin/quarto"}
 }
 
+func envMap(env []string) map[string]string {
+	m := make(map[string]string, len(env))
+	for _, kv := range env {
+		if i := strings.IndexByte(kv, '='); i >= 0 {
+			m[kv[:i]] = kv[i+1:]
+		}
+	}
+	return m
+}
+
+func TestRenderEnvForwardsAllowlistAndExcludesSecrets(t *testing.T) {
+	t.Setenv("PATH", "/usr/bin")
+	t.Setenv("SECRET_KEY", "s3cr3t")
+	t.Setenv("DATABASE_URI", "sqlite:///x")
+
+	m := envMap(renderEnv(Interpreters{}))
+	if m["PATH"] != "/usr/bin" {
+		t.Errorf("PATH = %q, want forwarded", m["PATH"])
+	}
+	if _, ok := m["SECRET_KEY"]; ok {
+		t.Error("SECRET_KEY must not leak into the render environment")
+	}
+	if _, ok := m["DATABASE_URI"]; ok {
+		t.Error("DATABASE_URI must not leak into the render environment")
+	}
+}
+
+func TestRenderEnvForwardsAmbientQuartoInterpreters(t *testing.T) {
+	t.Setenv("QUARTO_PYTHON", "/opt/py/bin/python")
+	t.Setenv("QUARTO_R", "/opt/r/bin/R")
+
+	m := envMap(renderEnv(Interpreters{}))
+	if m["QUARTO_PYTHON"] != "/opt/py/bin/python" {
+		t.Errorf("ambient QUARTO_PYTHON = %q, want forwarded", m["QUARTO_PYTHON"])
+	}
+	if m["QUARTO_R"] != "/opt/r/bin/R" {
+		t.Errorf("ambient QUARTO_R = %q, want forwarded", m["QUARTO_R"])
+	}
+}
+
+func TestRenderEnvExplicitInterpretersOverrideAmbient(t *testing.T) {
+	t.Setenv("QUARTO_PYTHON", "/ambient/python")
+	// No ambient QUARTO_R.
+
+	m := envMap(renderEnv(Interpreters{Python: "/pinned/python", R: "/pinned/R"}))
+	if m["QUARTO_PYTHON"] != "/pinned/python" {
+		t.Errorf("QUARTO_PYTHON = %q, want pinned override", m["QUARTO_PYTHON"])
+	}
+	if m["QUARTO_R"] != "/pinned/R" {
+		t.Errorf("QUARTO_R = %q, want pinned value", m["QUARTO_R"])
+	}
+	// Overridden key must appear exactly once (no duplicate env entries).
+	count := 0
+	for _, kv := range renderEnv(Interpreters{Python: "/pinned/python"}) {
+		if strings.HasPrefix(kv, "QUARTO_PYTHON=") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("QUARTO_PYTHON appears %d times, want exactly 1", count)
+	}
+}
+
 func TestRenderHTMLWritesSourceAndReadsOutput(t *testing.T) {
 	fr := &fakeRunner{html: "<html>OK</html>"}
 	r := &Renderer{caps: availableCaps(), runner: fr, timeout: time.Second}
@@ -140,6 +203,13 @@ func (f *fakeHTMLRenderer) RenderHTML(ctx context.Context, in Input) ([]byte, er
 		return nil, f.err
 	}
 	return []byte(f.html + ":" + in.Pagepath), nil
+}
+
+func (f *fakeHTMLRenderer) RenderTo(ctx context.Context, in Input, ef ExportFormat) ([]byte, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return []byte(f.html + ":" + ef.To + ":" + in.Pagepath), nil
 }
 
 func newServiceWithFake(t *testing.T, fr *fakeHTMLRenderer, concurrency int) (*Service, *rendercache.Cache) {

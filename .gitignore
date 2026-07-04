@@ -1,6 +1,8 @@
 # Build artifacts
 build/
 bin/
+.venv/
+uv.lock
 
 # Binaries
 # Anchored to repo root so it ignores only the top-level binary, not the

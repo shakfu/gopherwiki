@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/sa/gopherwiki/internal/rendercache"
@@ -45,17 +46,31 @@ type Runner interface {
 	Run(ctx context.Context, dir, name string, args ...string) (stdout, stderr []byte, err error)
 }
 
-// execRunner runs commands via os/exec.
-type execRunner struct{}
+// Interpreters optionally pins the Python and R executables Quarto uses at
+// render time. Empty fields fall back to Quarto's own discovery (PATH, an active
+// virtualenv/conda env, or the frontmatter kernelspec). They are surfaced to the
+// render subprocess as the QUARTO_PYTHON and QUARTO_R environment variables,
+// which Quarto reads to select an interpreter -- useful when the desired Python
+// (with its Jupyter machinery) or R (with knitr) is not on the render host's
+// PATH. See docs/computational-pages.md.
+type Interpreters struct {
+	Python string // -> QUARTO_PYTHON
+	R      string // -> QUARTO_R
+}
 
-func (execRunner) Run(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+// execRunner runs commands via os/exec.
+type execRunner struct {
+	interp Interpreters
+}
+
+func (e execRunner) Run(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
 	// Do not inherit the parent environment's secrets. Rendering runs author
 	// code with the author's trust, not the server's; keep application secrets
 	// (session keys, DB credentials) out of its environment. A minimal PATH and
 	// HOME are retained so the toolchain can locate itself and its caches.
-	cmd.Env = renderEnv()
+	cmd.Env = renderEnv(e.interp)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -64,24 +79,53 @@ func (execRunner) Run(ctx context.Context, dir, name string, args ...string) ([]
 	return stdout.Bytes(), stderr.Bytes(), err
 }
 
-// renderEnv returns a minimal environment for the render subprocess. It
-// deliberately excludes the parent process environment so application secrets do
-// not leak into author-controlled code, while retaining the few variables the
-// toolchain needs to locate itself and its caches.
-func renderEnv() []string {
-	var env []string
-	for _, key := range []string{"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL"} {
+// renderEnvAllowlist is the set of parent-process variables forwarded to the
+// render subprocess. It excludes application secrets by construction (only these
+// names pass) while retaining what the toolchain needs to locate itself and its
+// caches, plus Quarto's own interpreter-selection variables so an operator can
+// pin Python/R by setting them in the server environment.
+var renderEnvAllowlist = []string{
+	"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL",
+	"QUARTO_PYTHON", "QUARTO_R", "QUARTO_R_HOME",
+}
+
+// renderEnv returns the minimal, deterministic environment for the render
+// subprocess: the allowlisted parent variables, with explicit interpreter
+// overrides taking precedence over any ambient QUARTO_PYTHON/QUARTO_R.
+func renderEnv(interp Interpreters) []string {
+	vals := make(map[string]string, len(renderEnvAllowlist)+2)
+	for _, key := range renderEnvAllowlist {
 		if v, ok := os.LookupEnv(key); ok {
-			env = append(env, key+"="+v)
+			vals[key] = v
 		}
+	}
+	// Explicit configuration wins over whatever was inherited.
+	if interp.Python != "" {
+		vals["QUARTO_PYTHON"] = interp.Python
+	}
+	if interp.R != "" {
+		vals["QUARTO_R"] = interp.R
+	}
+
+	keys := make([]string, 0, len(vals))
+	for k := range vals {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	env := make([]string, 0, len(keys))
+	for _, k := range keys {
+		env = append(env, k+"="+vals[k])
 	}
 	return env
 }
 
-// htmlRenderer produces self-contained HTML from a page source. *Renderer is the
+// pageRenderer renders a page source: to self-contained HTML for the gated
+// computational render, or to an arbitrary export format. *Renderer is the
 // production implementation; tests supply a fake.
-type htmlRenderer interface {
+type pageRenderer interface {
 	RenderHTML(ctx context.Context, in Input) ([]byte, error)
+	RenderTo(ctx context.Context, in Input, f ExportFormat) ([]byte, error)
 }
 
 // Renderer invokes Quarto to render a page source to a single self-contained
@@ -93,18 +137,39 @@ type Renderer struct {
 	workRoot string // parent dir for temp work dirs ("" = os default)
 }
 
-// NewRenderer builds a Renderer using the real exec runner.
-func NewRenderer(caps Capabilities, timeout time.Duration) *Renderer {
+// NewRenderer builds a Renderer using the real exec runner. interp optionally
+// pins the Python/R interpreters Quarto uses.
+func NewRenderer(caps Capabilities, timeout time.Duration, interp Interpreters) *Renderer {
 	if timeout <= 0 {
 		timeout = defaultTimeout
 	}
-	return &Renderer{caps: caps, runner: execRunner{}, timeout: timeout}
+	return &Renderer{caps: caps, runner: execRunner{interp: interp}, timeout: timeout}
 }
 
 // RenderHTML writes the source into a fresh temp directory, runs
 // `quarto render ... --to html --embed-resources`, and returns the rendered
-// bytes. The temp directory (including any executed outputs) is always removed.
+// bytes. This is the gated computational render: code cells execute. The temp
+// directory (including any executed outputs) is always removed.
 func (r *Renderer) RenderHTML(ctx context.Context, in Input) ([]byte, error) {
+	return r.renderToFile(ctx, in.Source, []string{"--to", "html", "--embed-resources"}, "index.html")
+}
+
+// RenderTo renders a page source to the given export format and returns the
+// output bytes. Execution is always disabled (--no-execute): export must not be
+// a backdoor around the gated-execution rule, and plain pages have nothing to
+// execute anyway. See docs/computational-pages.md Section 6.
+func (r *Renderer) RenderTo(ctx context.Context, in Input, f ExportFormat) ([]byte, error) {
+	args := []string{"--to", f.To, "--no-execute"}
+	if f.EmbedResources {
+		args = append(args, "--embed-resources")
+	}
+	return r.renderToFile(ctx, in.Source, args, "index."+f.Ext)
+}
+
+// renderToFile writes source into a fresh temp directory, runs `quarto render`
+// with the given extra args producing outName, and returns that file's bytes.
+// The temp directory (including any executed outputs) is always removed.
+func (r *Renderer) renderToFile(ctx context.Context, source string, extraArgs []string, outName string) ([]byte, error) {
 	if !r.caps.Available {
 		return nil, ErrUnavailable
 	}
@@ -116,15 +181,15 @@ func (r *Renderer) RenderHTML(ctx context.Context, in Input) ([]byte, error) {
 	defer os.RemoveAll(dir)
 
 	const srcName = "index.qmd"
-	const outName = "index.html"
-	if err := os.WriteFile(filepath.Join(dir, srcName), []byte(in.Source), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, srcName), []byte(source), 0o600); err != nil {
 		return nil, fmt.Errorf("quarto: write source: %w", err)
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	args := []string{"render", srcName, "--to", "html", "--embed-resources", "--output", outName}
+	args := append([]string{"render", srcName}, extraArgs...)
+	args = append(args, "--output", outName)
 	_, stderr, err := r.runner.Run(ctx, dir, r.caps.Path, args...)
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
@@ -133,11 +198,11 @@ func (r *Renderer) RenderHTML(ctx context.Context, in Input) ([]byte, error) {
 		return nil, fmt.Errorf("quarto: render failed: %w: %s", err, string(stderr))
 	}
 
-	html, err := os.ReadFile(filepath.Join(dir, outName))
+	out, err := os.ReadFile(filepath.Join(dir, outName))
 	if err != nil {
 		return nil, fmt.Errorf("quarto: read output: %w", err)
 	}
-	return html, nil
+	return out, nil
 }
 
 // Service is the gated render orchestrator. It bounds concurrency, renders a
@@ -145,22 +210,40 @@ func (r *Renderer) RenderHTML(ctx context.Context, in Input) ([]byte, error) {
 // content. It is safe for concurrent use.
 type Service struct {
 	caps        Capabilities
-	renderer    htmlRenderer
+	renderer    pageRenderer
 	cache       *rendercache.Cache
 	sem         chan struct{}
 	fingerprint string
 }
 
+// Option configures a Service at construction time.
+type Option func(*serviceOptions)
+
+// serviceOptions holds the tunables an Option can set.
+type serviceOptions struct {
+	interp Interpreters
+}
+
+// WithInterpreters pins the Python and/or R executables Quarto uses at render
+// time. Empty strings leave Quarto's own discovery in place.
+func WithInterpreters(interp Interpreters) Option {
+	return func(o *serviceOptions) { o.interp = interp }
+}
+
 // NewService constructs a Service. concurrency <= 0 uses the default. A nil
 // cache or unavailable capabilities makes the service report Available() ==
 // false and reject renders with ErrUnavailable.
-func NewService(caps Capabilities, cache *rendercache.Cache, timeout time.Duration, concurrency int) *Service {
+func NewService(caps Capabilities, cache *rendercache.Cache, timeout time.Duration, concurrency int, opts ...Option) *Service {
 	if concurrency <= 0 {
 		concurrency = defaultConcurrency
 	}
+	var o serviceOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
 	return &Service{
 		caps:        caps,
-		renderer:    NewRenderer(caps, timeout),
+		renderer:    NewRenderer(caps, timeout, o.interp),
 		cache:       cache,
 		sem:         make(chan struct{}, concurrency),
 		fingerprint: caps.Fingerprint(),

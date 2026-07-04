@@ -1,6 +1,9 @@
 # Computational Pages (Quarto Integration)
 
-Status: design proposal. Not yet implemented.
+Status: implemented (Phases 1-7 of Section 9, plus export). See
+[computational-pages-progress.md](computational-pages-progress.md) for the
+build/verification log and known limitations. This document remains the design
+reference.
 
 This document specifies how GopherWiki integrates [Quarto](https://quarto.org)
 to support **computational pages** -- wiki pages whose code cells execute and

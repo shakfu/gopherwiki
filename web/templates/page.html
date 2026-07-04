@@ -25,6 +25,16 @@
     <span class="dropdown-icon text-danger"><i class="far fa-trash-alt"></i></span>
     Delete
 </a></li>
+{{if .export_formats}}
+<li class="dropdown-divider"></li>
+<li class="dropdown-header">Export as</li>
+{{range .export_formats}}
+<li><a href="/{{$.pagepath}}/export?format={{.Format}}">
+    <span class="dropdown-icon"><i class="fas fa-download"></i></span>
+    {{.Label}}
+</a></li>
+{{end}}
+{{end}}
 <li class="dropdown-divider"></li>
 <li><a href="#" data-action="toggle-dark-mode">
     <span class="dropdown-icon"><i class="far fa-moon"></i></span>

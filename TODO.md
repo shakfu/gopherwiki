@@ -23,7 +23,7 @@
 - [ ] Implement attachment deletion
 - [ ] Add bulk operations in admin panel
 - [ ] Webhook/notification support (page edits, issue updates, registrations)
-- [ ] Page export (PDF, Markdown ZIP, static HTML)
+- [x] Page export (PDF, HTML, DOCX, EPUB, GFM via Quarto; Markdown ZIP pure-Go). See docs/computational-pages.md Section 6.
 
 ## Editor
 

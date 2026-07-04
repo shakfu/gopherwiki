@@ -35,6 +35,11 @@ type RenderService interface {
 	Cached(ctx context.Context, source, engine string) (rendercache.Entry, bool, error)
 	// Invalidate drops any cached renders for a page.
 	Invalidate(ctx context.Context, pagepath string) error
+	// Export renders a page to the named format, returning the bytes and the
+	// resolved format descriptor. Never cached; execution is always disabled.
+	Export(ctx context.Context, in quarto.Input, format string) ([]byte, quarto.ExportFormat, error)
+	// ExportFormats lists the Quarto-produced export formats available.
+	ExportFormats() []quarto.ExportFormat
 }
 
 // siteSettingsCacheTTL is how long cached site settings remain valid.
@@ -215,6 +220,7 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, page *wiki.P
 
 	htmlContent, toc, libRequirements := s.renderPageContent(r.Context(), page)
 	data := NewPageData(page, template.HTML(htmlContent), toc, libRequirements)
+	data["export_formats"] = s.exportFormatLinks()
 
 	// Fetch backlinks
 	if backlinks, err := s.Wiki.Backlinks(r.Context(), page.Pagepath); err == nil && len(backlinks) > 0 {

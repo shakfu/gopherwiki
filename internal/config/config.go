@@ -97,6 +97,8 @@ type Config struct {
 	RenderTimeoutSecs int    // Wall-clock limit for a single render
 	RenderConcurrency int    // Max concurrent renders
 	RenderCachePath   string // Render cache DB path ("" derives a sibling of the primary DB)
+	RenderPython      string // Pin the Python interpreter for renders (-> QUARTO_PYTHON); "" = discover
+	RenderR           string // Pin the R interpreter for renders (-> QUARTO_R); "" = discover
 }
 
 // Default returns a Config with default values.
@@ -164,6 +166,8 @@ func Default() *Config {
 		RenderTimeoutSecs: 120,
 		RenderConcurrency: 2,
 		RenderCachePath:   "",
+		RenderPython:      "",
+		RenderR:           "",
 	}
 }
 
@@ -298,6 +302,8 @@ func (c *Config) LoadFromEnv() {
 	c.RenderTimeoutSecs = getEnvInt("RENDER_TIMEOUT_SECONDS", c.RenderTimeoutSecs)
 	c.RenderConcurrency = getEnvInt("RENDER_CONCURRENCY", c.RenderConcurrency)
 	c.RenderCachePath = getEnv("RENDER_CACHE_PATH", c.RenderCachePath)
+	c.RenderPython = getEnv("RENDER_PYTHON", c.RenderPython)
+	c.RenderR = getEnv("RENDER_R", c.RenderR)
 }
 
 // Validate checks that required configuration is set.

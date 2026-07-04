@@ -122,9 +122,11 @@ func setupRenderService(server *handlers.Server, cfg *config.Config) {
 	}
 
 	timeout := time.Duration(cfg.RenderTimeoutSecs) * time.Second
-	server.RenderService = quarto.NewService(caps, cache, timeout, cfg.RenderConcurrency)
+	interp := quarto.Interpreters{Python: cfg.RenderPython, R: cfg.RenderR}
+	server.RenderService = quarto.NewService(caps, cache, timeout, cfg.RenderConcurrency, quarto.WithInterpreters(interp))
 	slog.Info("computational page rendering enabled",
-		"quarto_version", caps.Version, "render_cache", cachePath, "concurrency", cfg.RenderConcurrency)
+		"quarto_version", caps.Version, "render_cache", cachePath, "concurrency", cfg.RenderConcurrency,
+		"render_python", orDiscover(cfg.RenderPython), "render_r", orDiscover(cfg.RenderR))
 }
 
 // sqlitePath extracts a filesystem path from a sqlite database URI. It mirrors
@@ -136,6 +138,15 @@ func sqlitePath(uri string) string {
 		path = strings.TrimPrefix(uri, "sqlite:///")
 	} else if strings.HasPrefix(uri, "sqlite://") {
 		path = strings.TrimPrefix(uri, "sqlite://")
+	}
+	return path
+}
+
+// orDiscover renders an interpreter path for logging, showing "(discover)" when
+// none is pinned so the log makes the fallback behaviour explicit.
+func orDiscover(path string) string {
+	if path == "" {
+		return "(discover)"
 	}
 	return path
 }

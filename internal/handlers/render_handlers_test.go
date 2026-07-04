@@ -41,6 +41,17 @@ func (f *fakeRenderService) Cached(ctx context.Context, source, engine string) (
 
 func (f *fakeRenderService) Invalidate(ctx context.Context, pagepath string) error { return nil }
 
+func (f *fakeRenderService) Export(ctx context.Context, in quarto.Input, format string) ([]byte, quarto.ExportFormat, error) {
+	if f.err != nil {
+		return nil, quarto.ExportFormat{}, f.err
+	}
+	return []byte("EXPORT:" + format), quarto.ExportFormat{Name: format, Ext: "bin", MediaType: "application/octet-stream"}, nil
+}
+
+func (f *fakeRenderService) ExportFormats() []quarto.ExportFormat {
+	return []quarto.ExportFormat{{Name: "pdf", Label: "PDF", Ext: "pdf", MediaType: "application/pdf"}}
+}
+
 var author = storage.Author{Name: "test", Email: "test@test.com"}
 
 func TestRenderEndpointDisabledWhenNoService(t *testing.T) {

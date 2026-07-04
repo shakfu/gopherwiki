@@ -39,6 +39,7 @@ var RouteMap = map[string]RouteInfo{
 	"blame":        {ParamName: "path", Pattern: "/%s/blame", Fallback: "/blame"},
 	"diff":         {ParamName: "path", Pattern: "/%s/diff", Fallback: "/diff"},
 	"source":       {ParamName: "path", Pattern: "/%s/source", Fallback: "/source"},
+	"export":       {ParamName: "path", Pattern: "/%s/export", Fallback: "/export"},
 	"create":       {ParamName: "path", Pattern: "/%s/create", Fallback: "/-/create"},
 	"attachments":  {ParamName: "pagepath", Pattern: "/%s/attachments", Fallback: "/attachments"},
 	"static":       {ParamName: "filename", Pattern: "/static/%s", Fallback: "/static/"},
@@ -206,6 +207,7 @@ func (s *Server) Routes() chi.Router {
 			r.Use(s.PermissionChecker.RequireRead)
 			r.Get("/", s.handleView)
 			r.Get("/rendered", s.handleRendered)
+			r.Get("/export", s.handleExport)
 			r.Get("/history", s.handleHistory)
 			r.Get("/source", s.handleSource)
 			r.Get("/blame", s.handleBlame)
