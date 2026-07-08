@@ -3,10 +3,18 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS := -ldflags "-X main.Version=$(VERSION)"
 TAGS := -tags fts5
+SECRET_KEY ?= ntjaMxdy1BehFb84
 
-.PHONY: all build run test clean sqlc
+.PHONY: all build run test clean sqlc install reset
 
 all: build
+
+install:
+	@cd web/editor && bun install
+
+reset:
+	@rm -rf web/editor/node_modules
+	@cd web/editor && bun install
 
 build-editor:
 	@bun build web/editor/editor.js --outfile=web/static/js/editor.bundle.js --minify --bundle
@@ -15,7 +23,7 @@ build: build-editor
 	@go build $(TAGS) $(LDFLAGS) -o bin/gopherwiki ./cmd/gopherwiki
 
 run: build
-	@./bin/gopherwiki -repo ./build/test-repo -port 8080
+	@SECRET_KEY=$(SECRET_KEY) ./bin/gopherwiki -repo ./build/test-repo -port 8080
 
 test:
 	@go test $(TAGS) -v ./...
