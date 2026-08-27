@@ -20,6 +20,7 @@ reverse proxy into the otterwiki service with additional headers
 providing information about the user.
 
 ## Requirements
+
 1. each header's name can be set independently
 2. headers with user and email are required
 3. permissions header is optional

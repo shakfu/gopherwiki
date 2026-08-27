@@ -9,17 +9,29 @@ This project started off as a Go translation of [Otter Wiki](https://github.com/
 ## Features
 
 - Minimalistic interface with dark mode
+
 - Markdown editor with syntax highlighting and table support
+
 - Customizable sidebar with menu and page index
+
 - Live search dropdown in the navbar with HTMX
+
 - Full changelog and page history with diff view
+
 - User authentication with configurable access control
+
 - Page attachments with image thumbnails
+
 - Extended Markdown: tables, footnotes, alerts, mermaid diagrams, syntax highlighting
+
 - Issue tracker with comments and discussion threads
+
 - Draft autosave
+
 - RSS/Atom feeds
+
 - JSON API (`/-/api/v1/`) for pages, search, changelog, and issues
+
 - Single binary deployment
 
 ## Installation
@@ -54,7 +66,7 @@ The `REPOSITORY` directory will be initialized as a Git repository if it doesn't
 docker-compose up -d
 ```
 
-Access the wiki at http://localhost:8080
+Access the wiki at <http://localhost:8080>
 
 ### docker-compose.yml
 
@@ -66,12 +78,18 @@ services:
     ports:
       - "8080:8080"
     volumes:
+
       - ./app-data:/app-data
     environment:
+
       - SECRET_KEY=your-secure-random-key
+
       - SITE_NAME=GopherWiki
+
       - SITE_URL=http://localhost:8080
+
       - READ_ACCESS=ANONYMOUS
+
       - WRITE_ACCESS=REGISTERED
 ```
 
@@ -83,7 +101,7 @@ GopherWiki can be configured via a YAML config file, environment variables, or c
 |----------|---------|-------------|
 | `SECRET_KEY` | (required) | Secret key for session encryption. Generate with `openssl rand -base64 32` |
 | `SITE_NAME` | GopherWiki | Name displayed in the header |
-| `SITE_URL` | http://localhost:8080 | Public URL for feeds and sitemap |
+| `SITE_URL` | <http://localhost:8080> | Public URL for feeds and sitemap |
 | `HOME_PAGE` | Home | Default landing page |
 | `REPOSITORY` | ./repository | Path to Git repository |
 | `DATABASE_URI` | sqlite://gopherwiki.db | SQLite database path |
@@ -180,11 +198,17 @@ make run
 ## Technology Stack
 
 - **Web Framework**: [Chi](https://github.com/go-chi/chi) - lightweight, idiomatic router
+
 - **Markdown**: [goldmark](https://github.com/yuin/goldmark) - CommonMark compliant with extensions
+
 - **Syntax Highlighting**: [Chroma](https://github.com/alecthomas/chroma) - pure Go highlighter
+
 - **Git**: [go-git](https://github.com/go-git/go-git) - pure Go Git implementation
+
 - **Database**: SQLite via [go-sqlite3](https://github.com/mattn/go-sqlite3)
+
 - **Sessions**: [gorilla/sessions](https://github.com/gorilla/sessions)
+
 - **Templates**: Go html/template with embedded assets
 
 ## License

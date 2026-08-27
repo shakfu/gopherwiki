@@ -15,7 +15,7 @@ Authentication uses the same session cookies as the web UI. API requests that fa
 
 ### List all pages
 
-```
+```text
 GET /-/api/v1/pages
 ```
 
@@ -32,7 +32,7 @@ GET /-/api/v1/pages
 
 ### Get a page
 
-```
+```text
 GET /-/api/v1/pages/{path}
 ```
 
@@ -67,7 +67,7 @@ Supports `ETag` / `If-None-Match` for cache validation (returns `304` when uncha
 
 ### Create or update a page
 
-```
+```text
 PUT /-/api/v1/pages/{path}
 ```
 
@@ -90,12 +90,14 @@ PUT /-/api/v1/pages/{path}
 **Responses**
 
 - `201 Created` -- new page created
+
 - `200 OK` -- existing page updated
+
 - `409 Conflict` -- page was modified since the given `revision`
 
 ### Delete a page
 
-```
+```text
 DELETE /-/api/v1/pages/{path}
 ```
 
@@ -107,7 +109,7 @@ DELETE /-/api/v1/pages/{path}
 
 ### Get page history
 
-```
+```text
 GET /-/api/v1/pages/{path}/history
 ```
 
@@ -130,7 +132,7 @@ GET /-/api/v1/pages/{path}/history
 
 ### Get page backlinks
 
-```
+```text
 GET /-/api/v1/pages/{path}/backlinks
 ```
 
@@ -148,7 +150,7 @@ Returns pages that link to the given page via `[[wikilinks]]`.
 
 ### Search pages
 
-```
+```text
 GET /-/api/v1/search?q={query}
 ```
 
@@ -175,7 +177,7 @@ Uses FTS5 full-text search with fallback to brute-force regex matching.
 
 ### Get recent changes
 
-```
+```text
 GET /-/api/v1/changelog
 ```
 
@@ -189,7 +191,7 @@ Returns the 100 most recent commits across the entire wiki.
 
 ### List issues
 
-```
+```text
 GET /-/api/v1/issues
 ```
 
@@ -222,7 +224,7 @@ GET /-/api/v1/issues
 
 ### Get an issue
 
-```
+```text
 GET /-/api/v1/issues/{id}
 ```
 
@@ -230,7 +232,7 @@ GET /-/api/v1/issues/{id}
 
 ### Create an issue
 
-```
+```text
 POST /-/api/v1/issues
 ```
 
@@ -256,7 +258,7 @@ POST /-/api/v1/issues
 
 ### Update an issue
 
-```
+```text
 PUT /-/api/v1/issues/{id}
 ```
 
@@ -266,7 +268,7 @@ Same request body as create. Status is preserved (use close/reopen endpoints to 
 
 ### Close an issue
 
-```
+```text
 POST /-/api/v1/issues/{id}/close
 ```
 
@@ -274,7 +276,7 @@ POST /-/api/v1/issues/{id}/close
 
 ### Reopen an issue
 
-```
+```text
 POST /-/api/v1/issues/{id}/reopen
 ```
 
@@ -282,7 +284,7 @@ POST /-/api/v1/issues/{id}/reopen
 
 ### Delete an issue (admin only)
 
-```
+```text
 DELETE /-/api/v1/issues/{id}
 ```
 
@@ -300,7 +302,7 @@ Cascade-deletes all comments on the issue.
 
 ### List comments
 
-```
+```text
 GET /-/api/v1/issues/{id}/comments
 ```
 
@@ -324,7 +326,7 @@ GET /-/api/v1/issues/{id}/comments
 
 ### Create a comment
 
-```
+```text
 POST /-/api/v1/issues/{id}/comments
 ```
 
@@ -338,7 +340,7 @@ POST /-/api/v1/issues/{id}/comments
 
 ### Delete a comment (admin only)
 
-```
+```text
 DELETE /-/api/v1/issues/{id}/comments/{commentId}
 ```
 

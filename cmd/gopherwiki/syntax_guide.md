@@ -14,7 +14,7 @@ A complete reference for all formatting features supported by GopherWiki.
 
 ## Headings
 
-```
+```text
 # Heading 1
 ## Heading 2
 ### Heading 3
@@ -29,7 +29,7 @@ Headings automatically generate anchor links and appear in the table of contents
 
 ### Standard Links
 
-```
+```text
 [Link text](https://example.com)
 [Link with title](https://example.com "Title text")
 ```
@@ -40,7 +40,7 @@ Headings automatically generate anchor links and appear in the table of contents
 
 Link to other pages in the wiki using double brackets:
 
-```
+```text
 [[PageName]]
 [[Target Page|Display Text]]
 ```
@@ -53,7 +53,7 @@ Link to other pages in the wiki using double brackets:
 
 Link to issues in the built-in issue tracker:
 
-```
+```text
 [[#1]]
 [[#42|See this issue]]
 ```
@@ -64,7 +64,7 @@ Link to issues in the built-in issue tracker:
 
 ## Images
 
-```
+```text
 ![Alt text](https://via.placeholder.com/200x100)
 ```
 
@@ -72,7 +72,7 @@ Link to issues in the built-in issue tracker:
 
 ### Unordered List
 
-```
+```text
 - Item one
 - Item two
   - Nested item
@@ -88,7 +88,7 @@ Link to issues in the built-in issue tracker:
 
 ### Ordered List
 
-```
+```text
 1. First
 2. Second
 3. Third
@@ -100,7 +100,7 @@ Link to issues in the built-in issue tracker:
 
 ### Task List
 
-```
+```text
 - [x] Completed task
 - [ ] Incomplete task
 - [ ] Another task
@@ -112,7 +112,7 @@ Link to issues in the built-in issue tracker:
 
 ## Blockquotes
 
-```
+```text
 > This is a blockquote.
 > It can span multiple lines.
 >
@@ -126,7 +126,7 @@ Link to issues in the built-in issue tracker:
 
 ## Tables
 
-```
+```text
 | Left Aligned | Center Aligned | Right Aligned |
 |:-------------|:--------------:|--------------:|
 | left         | center         | right         |
@@ -142,7 +142,7 @@ Link to issues in the built-in issue tracker:
 
 Fenced code blocks with syntax highlighting:
 
-````
+````text
 ```python
 def hello():
     print("Hello, World!")
@@ -160,7 +160,7 @@ for i in range(10):
     hello()
 ```
 
-````
+````text
 ```go
 package main
 
@@ -182,7 +182,7 @@ func main() {
 }
 ```
 
-````
+````text
 ```javascript
 const greet = (name) => {
     console.log(`Hello, ${name}!`);
@@ -202,7 +202,7 @@ All code blocks include a copy-to-clipboard button.
 
 Create diagrams using [Mermaid](https://mermaid.js.org/) syntax:
 
-````
+````text
 ```mermaid
 flowchart LR
     A[Start] --> B{Decision}
@@ -248,7 +248,7 @@ pie title Languages Used
 
 Write LaTeX math using fenced code blocks:
 
-````
+````text
 ```math
 E = mc^2
 ```
@@ -268,7 +268,7 @@ Inline math uses `\(...\)` syntax: \(a^2 + b^2 = c^2\)
 
 ## Footnotes
 
-```
+```text
 Here is a sentence with a footnote[^1] and another[^note].
 
 [^1]: This is the first footnote.
@@ -282,7 +282,7 @@ Here is a sentence with a footnote[^1] and another[^note].
 
 ## Horizontal Rule
 
-```
+```text
 ---
 ```
 

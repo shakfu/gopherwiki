@@ -15,4 +15,3 @@ set. The access results in a 403 Forbidden
 - On <http://localhost:8081> a caddy server is listening, which does a
 reverse proxy into the otterwiki service with additional headers
 providing information about the user.
-
