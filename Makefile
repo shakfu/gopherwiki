@@ -8,6 +8,7 @@ SECRET_KEY ?= ntjaMxdy1BehFb84
 REPO ?= ./build/test-repo
 PORT ?= 8080
 HOST ?= 127.0.0.1
+OPEN ?= 1
 
 # Render cache for dev-compute. Kept in build/ rather than the default location
 # beside the wiki database, so cache files never land inside the wiki repo.
@@ -45,7 +46,21 @@ sqlc:
 	@sqlc generate
 
 # Development helpers
+
+# Open the dev URL once the server answers. Polls because `go run` compiles
+# first; gives up after 60s so a failed start leaves no stray process.
+define open_browser
+	@if [ "$(OPEN)" = 1 ]; then \
+		( for i in $$(seq 120); do \
+			curl -so /dev/null http://$(HOST):$(PORT)/ && \
+			{ $$(command -v open || command -v xdg-open) http://$(HOST):$(PORT)/; break; }; \
+			sleep 0.5; \
+		done ) & \
+	fi
+endef
+
 dev:
+	$(open_browser)
 	@DEV_MODE=1 go run $(TAGS) $(LDFLAGS) ./cmd/gopherwiki -repo $(REPO) -host $(HOST) -port $(PORT)
 
 # Development server with computational pages (.qmd execution via Quarto) and
@@ -56,6 +71,7 @@ dev:
 dev-compute: demo-pages
 	@command -v quarto >/dev/null 2>&1 || echo "warning: quarto not found on PATH; .qmd rendering and Quarto export will be unavailable"
 	@mkdir -p $(dir $(RENDER_CACHE_PATH))
+	$(open_browser)
 	@DEV_MODE=1 \
 		COMPUTATIONAL_PAGES_ENABLED=1 \
 		EXPORT_ENABLED=1 \
