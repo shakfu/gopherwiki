@@ -87,16 +87,7 @@ func New(cfg *config.Config) *Renderer {
 	}
 
 	md := goldmark.New(
-		goldmark.WithExtensions(
-			extension.GFM,
-			extension.Typographer,
-			extension.Footnote,
-			highlighting.NewHighlighting(highlightOpts...),
-			&IssueRefExtension{},
-			&WikiLinkExtension{},
-			&MarkExtension{},
-			&MathInlineExtension{},
-		),
+		goldmark.WithExtensions(append(syntaxExtensions(), highlighting.NewHighlighting(highlightOpts...))...),
 		goldmark.WithParserOptions(
 			parser.WithAutoHeadingID(),
 		),
@@ -111,6 +102,23 @@ func New(cfg *config.Config) *Renderer {
 		markdown: md,
 	}
 }
+
+// syntaxExtensions returns the extensions that define the wiki's Markdown
+// syntax, shared by rendering and link extraction.
+func syntaxExtensions() []goldmark.Extender {
+	return []goldmark.Extender{
+		extension.GFM,
+		extension.Typographer,
+		extension.Footnote,
+		&IssueRefExtension{},
+		&WikiLinkExtension{},
+		&MarkExtension{},
+		&MathInlineExtension{},
+	}
+}
+
+// linkParser parses Markdown the way the renderer does, for ExtractWikiLinks.
+var linkParser = goldmark.New(goldmark.WithExtensions(syntaxExtensions()...)).Parser()
 
 // Ensure chroma and styles are used (for CSS generation)
 var _ = chroma.Coalesce
@@ -264,46 +272,33 @@ func Slugify(s string) string {
 }
 
 // ExtractWikiLinks extracts normalized wikilink targets from markdown content.
-// If retainCase is false, targets are lowercased. Issue refs ([[#123]]) are skipped.
+// If retainCase is false, targets are lowercased. It returns the links the
+// renderer produces, so wikilinks in code and issue refs ([[#123]]) are skipped.
 func ExtractWikiLinks(content string, retainCase bool) []string {
-	matches := wikiLinkRegex.FindAllStringSubmatch(content, -1)
-	if len(matches) == 0 {
-		return nil
-	}
+	source := []byte(content)
+	doc := linkParser.Parse(text.NewReader(source))
 
 	seen := make(map[string]bool)
 	var result []string
-	for _, m := range matches {
-		inner := m[1]
-
-		// Skip issue refs like [[#123]]
-		if len(inner) > 0 && inner[0] == '#' {
-			continue
+	ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		wl, ok := n.(*WikiLink)
+		if !entering || !ok {
+			return ast.WalkContinue, nil
 		}
-
-		// Extract target (before pipe if present)
-		target := inner
-		if idx := strings.Index(inner, "|"); idx >= 0 {
-			target = inner[:idx]
-		}
-		target = strings.TrimSpace(target)
+		target := strings.TrimSpace(wl.Target)
 		if target == "" {
-			continue
+			return ast.WalkContinue, nil
 		}
-
-		// Normalize: spaces to hyphens
 		target = strings.ReplaceAll(target, " ", "-")
-
 		if !retainCase {
 			target = strings.ToLower(target)
 		}
-
 		if !seen[target] {
 			seen[target] = true
 			result = append(result, target)
 		}
-	}
-
+		return ast.WalkContinue, nil
+	})
 	return result
 }
 

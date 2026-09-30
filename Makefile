@@ -14,8 +14,8 @@ OPEN ?= 1
 # beside the wiki database, so cache files never land inside the wiki repo.
 RENDER_CACHE_PATH ?= $(CURDIR)/build/render-cache.db
 
-.PHONY: all build build-editor run dev dev-compute demo-pages test clean sqlc \
-	install reset fmt vet lint docker-build docker-run
+.PHONY: all build build-editor run dev dev-compute demo-pages dev-token mcp-demo \
+	test clean sqlc install reset fmt vet lint docker-build docker-run
 
 all: build
 
@@ -84,6 +84,25 @@ dev-compute: demo-pages
 # repo. Idempotent: existing files are left untouched.
 demo-pages:
 	@./scripts/seed-demo-pages.sh $(REPO)
+
+# Print a new API token for the dev database. Bound to EMAIL, or the first user.
+PREFIX ?= agents
+EMAIL ?=
+dev-token:
+	@./scripts/dev-token.sh $(REPO)/.wiki.db $(PREFIX) $(EMAIL)
+
+# Demo wiki for testing MCP with an agent: pages, report runs, an agent user
+# and its token. Seeded once into MCP_DEMO; delete that directory to reseed.
+MCP_DEMO ?= build/mcp-demo
+MCP_SEED_PORT ?= 18089
+mcp-demo:
+	@go build $(TAGS) $(LDFLAGS) -o build/gopherwiki-dev ./cmd/gopherwiki
+	@./scripts/seed-mcp-demo.sh build/gopherwiki-dev $(MCP_DEMO) $(MCP_SEED_PORT)
+	@echo "Browser login: admin@demo.local / demo-password (admin, reviewer)"
+	@echo "Connect Claude Code:"
+	@echo "  claude mcp add --transport http northwind http://$(HOST):$(PORT)/-/api/v1/mcp --header \"Authorization: Bearer $$(cat $(MCP_DEMO)/token)\""
+	$(open_browser)
+	@DEV_MODE=1 ./build/gopherwiki-dev -repo $(MCP_DEMO)/repo -host $(HOST) -port $(PORT)
 
 fmt:
 	@go fmt ./...

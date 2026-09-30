@@ -147,7 +147,6 @@ func TestApplyTo_AllFields(t *testing.T) {
 	devMode := true
 	repo := "/opt/wiki"
 	dbURI := "sqlite:///custom.db"
-	authMethod := "header"
 	regEnabled := true
 	secret := "super-secret-key-1234"
 	autoApproval := false
@@ -167,7 +166,6 @@ func TestApplyTo_AllFields(t *testing.T) {
 		DevMode:             &devMode,
 		Repository:          &repo,
 		DatabaseURI:         &dbURI,
-		AuthMethod:          &authMethod,
 		DisableRegistration: &regEnabled,
 		SecretKey:           &secret,
 		AutoApproval:        &autoApproval,
@@ -200,9 +198,6 @@ func TestApplyTo_AllFields(t *testing.T) {
 	}
 	if cfg.DatabaseURI != "sqlite:///custom.db" {
 		t.Errorf("DatabaseURI = %q, want 'sqlite:///custom.db'", cfg.DatabaseURI)
-	}
-	if cfg.AuthMethod != "header" {
-		t.Errorf("AuthMethod = %q, want 'header'", cfg.AuthMethod)
 	}
 	if cfg.DisableRegistration {
 		t.Error("DisableRegistration should be false when registration_enabled is true")

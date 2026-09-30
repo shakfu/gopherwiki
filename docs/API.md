@@ -22,8 +22,11 @@ claude mcp add --transport http gopherwiki https://wiki.example.com/-/api/v1/mcp
 ```
 
 - Tools: `guide`, `search`, `read_page`, `write_pages`, `list_runs`, `read_run`, `backlinks`, `lint`, `changelog`, `open_issue`. Each calls the JSON API below with the same credentials, so the same rules apply; an API error reaches the model as a tool error.
+
 - `guide` explains the conventions for agents, then returns the page named by `GUIDE_PAGE` (default `Meta/Schema`) and the page list.
+
 - The server is stateless. It answers each request with one JSON object; `GET` returns `405`. It supports protocol versions `2025-11-25`, `2025-06-18` and `2025-03-26`.
+
 - A request with an `Origin` header other than the site's is rejected with `403`.
 
 ## API tokens
@@ -37,8 +40,11 @@ Authorization: Bearer gw_...
 A token request acts as the token's user and needs no CSRF token. It is limited in four ways:
 
 - It may create and update pages only at or below the token's write prefix. Other paths return `403`.
+
 - Updating an existing page requires `revision`. Without it the response is `428 Precondition Required`. Use `metadata.revision` from the page's `GET` response.
+
 - It may not delete pages.
+
 - It never has admin rights, and it is accepted only under `/-/api/`.
 
 An unknown or revoked token returns `401`.

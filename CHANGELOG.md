@@ -36,6 +36,10 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 
 ### Fixed
 
+- **First start**: A new wiki's home and syntax guide pages were missing from search, backlinks and lint until the second start. The search index was built before those pages were created, and creating them did not index them.
+
+- **Links in code**: Backlinks, orphan and broken-link checks counted `[[...]]` inside inline code and code blocks, and inside `==highlight==`, where the page shows no link. Links are now taken from the parsed page, so they match the rendered links. The page index is rebuilt once at the next start to drop the false links.
+
 - **Backlinks on mixed-case URLs**: "What links here" was empty when a page was opened with capitals in its URL, such as `/Home`. Link targets are stored lowercased, but the lookup used the path as typed.
 
 - **Saving unchanged content**: Saving a page without changes failed with "cannot create empty commit". go-git's `Status.File` reports an unchanged tracked file as untracked, so the no-change check never matched.
@@ -57,6 +61,10 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ### Changed
 
 - **Render-aware caching for computational pages**: A computational page's ETag now reflects its current render state, so re-rendered output is not masked by a stale browser cache.
+
+### Removed
+
+- **Unimplemented settings**: `AUTH_METHOD`, `AUTH_HEADERS_*`, `MAIL_*`, `NOTIFY_*`, `GIT_WEB_SERVER`, `GIT_REMOTE_*`, `HTML_EXTRA_*`, `ROBOTS_TXT`, `COMMIT_MESSAGE`, `WIKILINK_STYLE`, `MINIFY_HTML`, `MAX_FORM_MEMORY_SIZE`, `SITE_ICON`, `HIDE_LOGO`, `TREAT_UNDERSCORE_AS_SPACE_FOR_TITLES`, and the `SIDEBAR_*` settings other than `SIDEBAR_MENUTREE_MODE` were parsed but never read. The Otter Wiki examples in `docs/auth_examples/`, `docs/custom_css_example/` and `docs/custom_html_example/` were removed with them.
 
 ## [0.1.1]
 

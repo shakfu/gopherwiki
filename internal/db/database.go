@@ -307,6 +307,15 @@ var migrations = []migration{
 		)`)
 		return err
 	}},
+	// Link extraction once counted wikilinks inside code. Emptying the index
+	// makes EnsureSearchIndex rebuild it, and the links, at the next start.
+	{12, "clear page index for link re-extraction", func(ctx context.Context, conn *sql.DB) error {
+		if _, err := conn.ExecContext(ctx, `DELETE FROM page_fts`); err != nil {
+			return err
+		}
+		_, err := conn.ExecContext(ctx, `DELETE FROM page_links`)
+		return err
+	}},
 }
 
 // runMigrations runs versioned schema migrations, tracking progress

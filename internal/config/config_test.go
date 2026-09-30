@@ -71,12 +71,6 @@ func TestDefault(t *testing.T) {
 	if !cfg.AutoApproval {
 		t.Error("AutoApproval should default to true")
 	}
-	if !cfg.MinifyHTML {
-		t.Error("MinifyHTML should default to true")
-	}
-	if cfg.MaxFormMemorySize != 1_000_000 {
-		t.Errorf("MaxFormMemorySize = %d, want %d", cfg.MaxFormMemorySize, 1_000_000)
-	}
 	if cfg.LogLevel != "INFO" {
 		t.Errorf("LogLevel = %q, want %q", cfg.LogLevel, "INFO")
 	}
@@ -145,27 +139,27 @@ func TestLoadFromEnvBool(t *testing.T) {
 func TestLoadFromEnvInt(t *testing.T) {
 	cfg := Default()
 
-	t.Setenv("MAIL_PORT", "587")
-	t.Setenv("MAX_FORM_MEMORY_SIZE", "5000000")
+	t.Setenv("PORT", "9090")
+	t.Setenv("RENDER_TIMEOUT_SECONDS", "300")
 
 	cfg.LoadFromEnv()
 
-	if cfg.MailPort != 587 {
-		t.Errorf("MailPort = %d, want %d", cfg.MailPort, 587)
+	if cfg.Port != 9090 {
+		t.Errorf("Port = %d, want %d", cfg.Port, 9090)
 	}
-	if cfg.MaxFormMemorySize != 5_000_000 {
-		t.Errorf("MaxFormMemorySize = %d, want %d", cfg.MaxFormMemorySize, 5_000_000)
+	if cfg.RenderTimeoutSecs != 300 {
+		t.Errorf("RenderTimeoutSecs = %d, want %d", cfg.RenderTimeoutSecs, 300)
 	}
 }
 
 func TestLoadFromEnvInt_Invalid(t *testing.T) {
 	cfg := Default()
-	t.Setenv("MAIL_PORT", "notanumber")
+	t.Setenv("PORT", "notanumber")
 	cfg.LoadFromEnv()
 
 	// Should fall back to default
-	if cfg.MailPort != 0 {
-		t.Errorf("MailPort = %d, want %d (default)", cfg.MailPort, 0)
+	if cfg.Port != 8080 {
+		t.Errorf("Port = %d, want %d (default)", cfg.Port, 8080)
 	}
 }
 

@@ -369,6 +369,26 @@ func TestExtractWikiLinks(t *testing.T) {
 			content: "[[#456|bug report]]",
 			want:    nil,
 		},
+		{
+			name:    "inline code excluded",
+			content: "Write `[[Page Name]]` to link, as in [[Real]].",
+			want:    []string{"real"},
+		},
+		{
+			name:    "fenced code block excluded",
+			content: "```text\n[[InCode]]\n```\n\n[[Real]]",
+			want:    []string{"real"},
+		},
+		{
+			name:    "indented code block excluded",
+			content: "Example:\n\n    [[InCode]]\n\n[[Real]]",
+			want:    []string{"real"},
+		},
+		{
+			name:    "link inside list and emphasis",
+			content: "- **[[Bold Link]]**\n- *[[Other|text]]*",
+			want:    []string{"bold-link", "other"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -438,5 +458,31 @@ func TestRenderIssueRefs(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestExtractWikiLinksMatchesRender checks that extraction finds exactly the
+// wikilinks the renderer turns into links, so lint and backlinks agree with
+// the page a reader sees.
+func TestExtractWikiLinksMatchesRender(t *testing.T) {
+	content := "# Guide\n\nSee [[Alpha]] and `[[NotALink]]`.\n\n```\n[[AlsoNot]]\n```\n\n| Col |\n|-|\n| [[Beta]] |\n\nIssue [[#7]] and ==[[Gamma]]==."
+
+	html, _, _ := New(config.Default()).Render(content, "/guide")
+	got := ExtractWikiLinks(content, false)
+	// The highlight parser keeps its content as text, so ==[[Gamma]]== is
+	// not a link.
+	want := []string{"alpha", "beta"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("ExtractWikiLinks() = %v, want %v", got, want)
+	}
+	for _, target := range want {
+		if !strings.Contains(strings.ToLower(html), `href="/`+target+`"`) {
+			t.Errorf("rendered HTML has no link to /%s: %s", target, html)
+		}
+	}
+	for _, target := range []string{"notalink", "alsonot", "gamma"} {
+		if strings.Contains(strings.ToLower(html), `href="/`+target+`"`) {
+			t.Errorf("rendered HTML links to /%s, which extraction skips", target)
+		}
 	}
 }

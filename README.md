@@ -1,216 +1,86 @@
 # GopherWiki
 
-GopherWiki is a wiki for collaborative content management. Content is stored in a Git repository, keeping track of all changes. [Markdown](https://daringfireball.net/projects/markdown) is used as the markup language.
+GopherWiki is a wiki that stores its pages as Markdown files in a Git repository. Every edit is a commit. It compiles to a single Go binary with embedded assets.
 
-GopherWiki is written in [Go](https://go.dev/) using [Chi](https://github.com/go-chi/chi) for routing, [goldmark](https://github.com/yuin/goldmark) for Markdown rendering, and [go-git](https://github.com/go-git/go-git) for version control. It compiles to a single binary with embedded assets for easy deployment.
-
-This project started off as a Go translation of [Otter Wiki](https://github.com/redimp/otterwiki), attempting feature parity while leveraging Go's single-binary deployment advantage.
+It started as a Go port of [Otter Wiki](https://github.com/redimp/otterwiki).
 
 ## Features
 
-- Minimalistic interface with dark mode
+- Markdown editor with preview and draft autosave
 
-- Markdown editor with syntax highlighting and table support
+- Wikilinks, tables, footnotes, alerts, Mermaid diagrams, MathJax, syntax highlighting
 
-- Customizable sidebar with menu and page index
+- Page history, diff, blame and revert
 
-- Live search dropdown in the navbar with HTMX
+- Full-text search, page index, sidebar page tree, backlinks
 
-- Full changelog and page history with diff view
+- Attachments with image thumbnails
 
-- User authentication with configurable access control
+- Issue tracker with comments
 
-- Page attachments with image thumbnails
+- Access control per action, user approval, reviewer role
 
-- Extended Markdown: tables, footnotes, alerts, mermaid diagrams, syntax highlighting
+- RSS/Atom feeds and sitemap
 
-- Issue tracker with comments and discussion threads
+- JSON API (`/-/api/v1/`) with bearer tokens scoped to a write prefix
 
-- Draft autosave
+- MCP server (`/-/api/v1/mcp`) for AI agents, with human validation of agent-written pages and a lint report
 
-- RSS/Atom feeds
+- Optional computational pages: `.qmd` pages rendered by Quarto, with Python, R and Observable JS, and stored monthly report runs
 
-- JSON API (`/-/api/v1/`) for pages, search, changelog, and issues
+- Optional export to PDF, HTML, DOCX, EPUB and GFM; Markdown ZIP always
 
-- Single binary deployment
-
-## Installation
-
-### Using Go
+## Quick start
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/gopherwiki.git
-cd gopherwiki
-
-# Build
 make build
-
-# Set required environment variables and run
-export SECRET_KEY=$(openssl rand -hex 32)
-export REPOSITORY="./repository"
-./gopherwiki
+SECRET_KEY=$(openssl rand -hex 32) REPOSITORY=./repository ./bin/gopherwiki
 ```
 
-Or run directly with `go run`:
+Open <http://localhost:8080> and register. The first user becomes an admin.
+
+With Docker:
 
 ```bash
-SECRET_KEY="your-secret-key-at-least-16-chars" REPOSITORY="/tmp/wiki-repo" go run ./cmd/gopherwiki
+SECRET_KEY=$(openssl rand -hex 32) docker compose up -d
 ```
 
-The `REPOSITORY` directory will be initialized as a Git repository if it doesn't exist.
+## Connecting an agent
 
-### Using Docker
+An admin creates a token at `/-/admin/tokens`. Then, for Claude Code:
 
 ```bash
-docker-compose up -d
+claude mcp add --transport http gopherwiki https://wiki.example.com/-/api/v1/mcp \
+  --header "Authorization: Bearer gw_..."
 ```
 
-Access the wiki at <http://localhost:8080>
+See the agent section of the admin guide before connecting one.
 
-### docker-compose.yml
+## Documentation
 
-```yaml
-services:
-  web:
-    build: .
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
-    volumes:
-
-      - ./app-data:/app-data
-    environment:
-
-      - SECRET_KEY=your-secure-random-key
-
-      - SITE_NAME=GopherWiki
-
-      - SITE_URL=http://localhost:8080
-
-      - READ_ACCESS=ANONYMOUS
-
-      - WRITE_ACCESS=REGISTERED
-```
-
-## Configuration
-
-GopherWiki can be configured via a YAML config file, environment variables, or command-line flags. When multiple sources set the same value, the precedence is: **defaults < config file < environment variables < CLI flags**.
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SECRET_KEY` | (required) | Secret key for session encryption. Generate with `openssl rand -base64 32` |
-| `SITE_NAME` | GopherWiki | Name displayed in the header |
-| `SITE_URL` | <http://localhost:8080> | Public URL for feeds and sitemap |
-| `HOME_PAGE` | Home | Default landing page |
-| `REPOSITORY` | ./repository | Path to Git repository |
-| `DATABASE_URI` | sqlite://gopherwiki.db | SQLite database path |
-| `READ_ACCESS` | ANONYMOUS | Who can read: ANONYMOUS, REGISTERED, or APPROVED |
-| `WRITE_ACCESS` | REGISTERED | Who can write: ANONYMOUS, REGISTERED, or APPROVED |
-| `ATTACHMENT_ACCESS` | REGISTERED | Who can upload: ANONYMOUS, REGISTERED, or APPROVED |
-| `AUTO_APPROVAL` | true | Auto-approve new registrations |
-| `DISABLE_REGISTRATION` | false | Disable new user registration |
-| `DEV_MODE` | false | Relaxes secret key validation for local development |
-
-### Config File
-
-Pass a YAML config file with `-config` or the `CONFIG_FILE` environment variable:
-
-```bash
-gopherwiki -config /etc/gopherwiki/config.yml
-```
-
-Example `config.yml`:
-
-```yaml
-# Server
-port: 8080
-host: "0.0.0.0"
-base_url: "https://wiki.example.com"
-dev_mode: false
-
-# Storage
-repository_path: "/var/lib/gopherwiki/repo"
-database_path: "sqlite:///var/lib/gopherwiki/wiki.db"
-
-# Auth
-session_secret: "your-secret-key-at-least-16-chars"
-auth_method: ""
-registration_enabled: true
-auto_approval: true
-
-# Permissions
-read_access: "ANONYMOUS"
-write_access: "REGISTERED"
-attachment_access: "REGISTERED"
-
-# Wiki
-site_name: "My Wiki"
-landing_page: "Home"
-site_lang: "en"
-
-# Logging
-log_level: "INFO"
-log_format: "text"
-```
-
-Only the fields you want to override need to be present -- omitted fields keep their defaults. Environment variables and CLI flags still override any values set in the file.
-
-### Generating a Secret Key
-
-```bash
-# Using OpenSSL
-openssl rand -base64 32
-
-# Using Go
-go run -e 'import "crypto/rand"; import "encoding/base64"; b := make([]byte, 32); rand.Read(b); println(base64.StdEncoding.EncodeToString(b))'
-```
-
-### Command-Line Flags
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `-config` | | Path to YAML configuration file |
-| `-host` | (all interfaces) | Host/IP to bind to |
-| `-port` | 8080 | HTTP server port |
-| `-repo` | | Path to wiki Git repository |
-| `-db` | | Path to SQLite database file |
-| `-templates` | | Path to templates directory (overrides embedded) |
-| `-static` | | Path to static files directory (overrides embedded) |
-| `-init` | | Path to initialization JSON file (run once to set up site) |
+| Document | Audience |
+|-|-|
+| [User guide](docs/user-guide.md) | Readers, editors, reviewers |
+| [Admin guide](docs/admin-guide.md) | Operators: install, configuration, users, agents |
+| [API](docs/API.md) | JSON API and MCP reference |
+| [Developer guide](docs/dev/dev-guide.md) | Building, testing, testing MCP |
+| [Computational pages](docs/computational-pages.md) | Quarto integration design |
+| [Security](docs/security.md) | Hardening for computational pages |
+| [LLM wiki design](docs/dev/llm-wiki.md) | Design of the agent features |
+| [Changelog](CHANGELOG.md) | Changes by release |
 
 ## Development
 
 ```bash
-# Run tests
-make test
-
-# Build
-make build
-
-# Run in development mode (localhost only, DEV_MODE=1)
-make dev
-
-# Run with default settings (all interfaces)
-make run
+make test      # run all tests
+make dev       # run from source on 127.0.0.1:8080 with DEV_MODE
+make mcp-demo  # run a seeded demo wiki for testing MCP with an agent
 ```
 
-## Technology Stack
+## Technology
 
-- **Web Framework**: [Chi](https://github.com/go-chi/chi) - lightweight, idiomatic router
-
-- **Markdown**: [goldmark](https://github.com/yuin/goldmark) - CommonMark compliant with extensions
-
-- **Syntax Highlighting**: [Chroma](https://github.com/alecthomas/chroma) - pure Go highlighter
-
-- **Git**: [go-git](https://github.com/go-git/go-git) - pure Go Git implementation
-
-- **Database**: SQLite via [go-sqlite3](https://github.com/mattn/go-sqlite3)
-
-- **Sessions**: [gorilla/sessions](https://github.com/gorilla/sessions)
-
-- **Templates**: Go html/template with embedded assets
+[Chi](https://github.com/go-chi/chi) routing, [goldmark](https://github.com/yuin/goldmark) Markdown, [Chroma](https://github.com/alecthomas/chroma) highlighting, [go-git](https://github.com/go-git/go-git) storage, SQLite via [go-sqlite3](https://github.com/mattn/go-sqlite3), [gorilla/sessions](https://github.com/gorilla/sessions), Go `html/template`.
 
 ## License
 
-GopherWiki is open-source software licensed under the MIT License.
+MIT.

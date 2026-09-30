@@ -60,9 +60,9 @@ func TestSchemaVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion failed: %v", err)
 	}
-	// Should be at the latest migration version (currently 11)
-	if version != 11 {
-		t.Errorf("SchemaVersion = %d, want 11", version)
+	// Should be at the latest migration version (currently 12)
+	if version != 12 {
+		t.Errorf("SchemaVersion = %d, want 12", version)
 	}
 }
 
@@ -79,8 +79,37 @@ func TestMigrateIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion failed: %v", err)
 	}
-	if version != 11 {
-		t.Errorf("SchemaVersion after re-migrate = %d, want 11", version)
+	if version != 12 {
+		t.Errorf("SchemaVersion after re-migrate = %d, want 12", version)
+	}
+}
+
+func TestMigrateClearsPageIndex(t *testing.T) {
+	database := openTestDB(t)
+	ctx := context.Background()
+	conn := database.Conn()
+
+	// A database from before migration 12, with links extracted from code.
+	if err := database.UpsertPageIndex(ctx, "guide", "Guide", "`[[InCode]]`"); err != nil {
+		t.Fatalf("UpsertPageIndex failed: %v", err)
+	}
+	if err := database.UpsertPageLinks(ctx, "guide", []string{"incode"}); err != nil {
+		t.Fatalf("UpsertPageLinks failed: %v", err)
+	}
+	if _, err := conn.ExecContext(ctx, `UPDATE schema_version SET version = 11`); err != nil {
+		t.Fatalf("failed to reset schema version: %v", err)
+	}
+
+	if err := database.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate failed: %v", err)
+	}
+
+	if count, err := database.PageIndexCount(ctx); err != nil || count != 0 {
+		t.Errorf("PageIndexCount = %d, %v; want 0 so the index is rebuilt", count, err)
+	}
+	links, err := database.AllPageLinks(ctx)
+	if err != nil || len(links) != 0 {
+		t.Errorf("AllPageLinks = %v, %v; want none", links, err)
 	}
 }
 

@@ -21,7 +21,6 @@ type FileConfig struct {
 	DatabaseURI *string `yaml:"database_path"`
 
 	// Auth
-	AuthMethod          *string `yaml:"auth_method"`
 	DisableRegistration *bool   `yaml:"registration_enabled"`
 	SecretKey           *string `yaml:"session_secret"`
 	AutoApproval        *bool   `yaml:"auto_approval"`
@@ -75,9 +74,6 @@ func (fc *FileConfig) applyTo(cfg *Config) {
 	}
 	if fc.DatabaseURI != nil {
 		cfg.DatabaseURI = *fc.DatabaseURI
-	}
-	if fc.AuthMethod != nil {
-		cfg.AuthMethod = *fc.AuthMethod
 	}
 	if fc.DisableRegistration != nil {
 		// YAML field is "registration_enabled", so invert

@@ -27,6 +27,7 @@ import (
 	"github.com/sa/gopherwiki/internal/quarto"
 	"github.com/sa/gopherwiki/internal/rendercache"
 	"github.com/sa/gopherwiki/internal/storage"
+	"github.com/sa/gopherwiki/internal/wiki"
 	"github.com/sa/gopherwiki/web"
 )
 
@@ -170,6 +171,70 @@ func orDiscover(path string) string {
 		return "(discover)"
 	}
 	return path
+}
+
+// prepareRepository creates the first-start pages in a repository without
+// pages, then builds the search index, so the index includes them.
+func prepareRepository(ctx context.Context, store storage.Storage, ws *wiki.WikiService, cfg *config.Config) {
+	// Check if repository is empty and create initial page
+	files, _, err := store.List("", nil, nil)
+	if err != nil {
+		slog.Warn("failed to list repository files", "error", err)
+	}
+	// Filter out hidden files like .wiki.db
+	var mdFiles []string
+	for _, f := range files {
+		if !strings.HasPrefix(f, ".") && strings.HasSuffix(f, ".md") {
+			mdFiles = append(mdFiles, f)
+		}
+	}
+	if len(mdFiles) == 0 {
+		slog.Info("creating initial pages")
+		homeContent := `# Welcome to GopherWiki
+
+This is your new wiki. Start editing this page or create new pages.
+
+## Getting Started
+
+- Click the edit button (pencil icon) to edit this page
+- Use [[WikiLinks]] to link to other pages
+- Markdown formatting is fully supported
+- See the [[SyntaxGuide]] for all supported features
+
+## Features
+
+- **Markdown**: Full markdown support with extensions
+- **Git Backend**: All changes are versioned with git
+- **WikiLinks**: [[Link to pages]] with double brackets
+- **Attachments**: Upload and embed images and files
+- **History**: View and compare page revisions
+
+Enjoy your wiki!
+`
+		author := storage.Author{
+			Name:  "GopherWiki",
+			Email: "noreply@gopherwiki",
+		}
+		homeFilename := "home.md"
+		if cfg.RetainPageNameCase {
+			homeFilename = "Home.md"
+		}
+		if _, err := store.Store(homeFilename, homeContent, "Initial commit", author); err != nil {
+			slog.Warn("failed to create initial home page", "error", err)
+		}
+
+		guideFilename := "syntaxguide.md"
+		if cfg.RetainPageNameCase {
+			guideFilename = "SyntaxGuide.md"
+		}
+		if _, err := store.Store(guideFilename, syntaxGuideContent, "Add syntax guide", author); err != nil {
+			slog.Warn("failed to create syntax guide page", "error", err)
+		}
+	}
+
+	if err := ws.EnsureSearchIndex(ctx); err != nil {
+		slog.Warn("failed to build search index", "error", err)
+	}
 }
 
 //go:embed syntax_guide.md
@@ -316,10 +381,7 @@ func main() {
 		setupRenderService(server, cfg)
 	}
 
-	// Build search index on startup
-	if err := server.Wiki.EnsureSearchIndex(context.Background()); err != nil {
-		slog.Warn("failed to build search index", "error", err)
-	}
+	prepareRepository(context.Background(), store, server.Wiki, cfg)
 
 	// Load templates: use filesystem override if provided, otherwise embedded
 	var templatesFS fs.FS
@@ -351,62 +413,6 @@ func main() {
 
 	// Create router
 	router := server.Routes()
-
-	// Check if repository is empty and create initial page
-	files, _, err := store.List("", nil, nil)
-	if err != nil {
-		slog.Warn("failed to list repository files", "error", err)
-	}
-	// Filter out hidden files like .wiki.db
-	var mdFiles []string
-	for _, f := range files {
-		if !strings.HasPrefix(f, ".") && strings.HasSuffix(f, ".md") {
-			mdFiles = append(mdFiles, f)
-		}
-	}
-	if len(mdFiles) == 0 {
-		slog.Info("creating initial pages")
-		homeContent := `# Welcome to GopherWiki
-
-This is your new wiki. Start editing this page or create new pages.
-
-## Getting Started
-
-- Click the edit button (pencil icon) to edit this page
-- Use [[WikiLinks]] to link to other pages
-- Markdown formatting is fully supported
-- See the [[SyntaxGuide]] for all supported features
-
-## Features
-
-- **Markdown**: Full markdown support with extensions
-- **Git Backend**: All changes are versioned with git
-- **WikiLinks**: [[Link to pages]] with double brackets
-- **Attachments**: Upload and embed images and files
-- **History**: View and compare page revisions
-
-Enjoy your wiki!
-`
-		author := storage.Author{
-			Name:  "GopherWiki",
-			Email: "noreply@gopherwiki",
-		}
-		homeFilename := "home.md"
-		if cfg.RetainPageNameCase {
-			homeFilename = "Home.md"
-		}
-		if _, err := store.Store(homeFilename, homeContent, "Initial commit", author); err != nil {
-			slog.Warn("failed to create initial home page", "error", err)
-		}
-
-		guideFilename := "syntaxguide.md"
-		if cfg.RetainPageNameCase {
-			guideFilename = "SyntaxGuide.md"
-		}
-		if _, err := store.Store(guideFilename, syntaxGuideContent, "Add syntax guide", author); err != nil {
-			slog.Warn("failed to create syntax guide page", "error", err)
-		}
-	}
 
 	// Start server with graceful shutdown
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
