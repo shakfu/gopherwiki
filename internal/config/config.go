@@ -101,6 +101,7 @@ type Config struct {
 	RenderPython      string // Pin the Python interpreter for renders (-> QUARTO_PYTHON); "" = discover
 	RenderR           string // Pin the R interpreter for renders (-> QUARTO_R); "" = discover
 	RenderApproval    bool   // Require a reviewer to approve a .qmd page's source before it may render
+	HideUnvalidated   bool   // Hide agent-written pages from non-reviewers until their current revision is validated
 	OJSLibsDir        string // Local mirror of the Observable JS libraries; when set, OJS pages load libs from the wiki (offline) instead of the CDNs
 }
 
@@ -311,6 +312,7 @@ func (c *Config) LoadFromEnv() {
 	c.RenderPython = getEnv("RENDER_PYTHON", c.RenderPython)
 	c.RenderR = getEnv("RENDER_R", c.RenderR)
 	c.RenderApproval = getEnvBool("RENDER_APPROVAL_REQUIRED", c.RenderApproval)
+	c.HideUnvalidated = getEnvBool("HIDE_UNVALIDATED", c.HideUnvalidated)
 	c.OJSLibsDir = getEnv("OJS_LIBS_DIR", c.OJSLibsDir)
 }
 

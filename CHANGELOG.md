@@ -12,6 +12,16 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 
 - **Code approval for computational pages**: With `RENDER_APPROVAL_REQUIRED=true`, a `.qmd` page renders only after a user with the new review permission approves the hash of its source; any edit needs a new approval. Without the setting, any editor can render, as before. The approval covers the whole source because prose can hold inline expressions and raw HTML. The source view now has Approve and Render buttons. See `docs/computational-pages.md` section 7.1.
 
+- **Batch save**: `POST /-/api/v1/batch` saves up to 100 pages in one commit, so one agent run is one revert. Every page is checked before anything is written; one failing page fails the batch. If the commit fails, the written files are restored. See `docs/API.md`.
+
+- **Lint**: `/-/lint` and `GET /-/api/v1/lint` list broken wikilinks and orphan pages, and for agent pages: missing validation, missing or superseded cited runs, and numbers in the prose that occur in none of the cited runs. The number check compares values, so formatting differences do not count; a derived figure such as a growth rate is reported for the validator to check. See `docs/dev/llm-wiki.md`.
+
+- **Validation of agent pages**: A page written through an API token is marked as an agent page and shows a banner until a user with the review permission validates its current revision. Any later commit, human or agent, voids the validation. With `HIDE_UNVALIDATED=true`, unvalidated agent pages are hidden from everyone except reviewers and API tokens: every page action answers 404, and the page and its commits are left out of search, the page index, the sidebar, backlinks, the sitemap, the changelog, feeds and the API. See `docs/dev/llm-wiki.md`.
+
+- **Cited report runs**: A page can list report runs in its frontmatter as `sources: [{page: <path>, run: <id>}]`. The page view shows each cited run with its period, and marks it out of date when a later run of the same period exists; the page API returns the same state under `sources`. An agent's analysis thereby names the exact figures it was written from. Entries of other shapes are ignored, so pages already using a `sources` key keep their frontmatter.
+
+- **Report runs**: Rendering a computational page with a period (`YYYY-MM`) stores the result permanently as a report run, with its executed markdown, source hash, revision, author and time. The page receives the period as the Quarto parameter `period`. A re-run keeps earlier runs, since the source data may have been restated. The page view shows the newest run and lists the others, and `GET /-/api/v1/pages/{path}/runs` exposes them. Runs live in the primary database rather than the render cache, which can evict entries. See `docs/computational-pages.md` section 5.1.1.
+
 - **Creating computational pages**: A page path ending in `.qmd` creates a computational page, in the editor (`/reports/august.qmd/edit`) and through `PUT /-/api/v1/pages/reports/august.qmd`. Before, a `.qmd` page could only be added to the git repository directly.
 
 - **Computational pages (Quarto)**: Pages stored with a `.qmd` extension are rendered by Quarto and may contain executable Python (Jupyter) and R (knitr) code cells whose results embed into the page. Execution is gated behind an authenticated render action and never runs on a reader's page view; the rendered output is cached in a separate SQLite database and served inside an isolated iframe. The feature is optional and feature-detected via `COMPUTATIONAL_PAGES_ENABLED`; without Quarto installed, `.qmd` pages show a render-pending placeholder and the rest of the wiki is unaffected. The render interpreters can be pinned with `RENDER_PYTHON` / `RENDER_R`. See `docs/computational-pages.md`.
@@ -23,6 +33,8 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - **Frontmatter parsing**: Leading YAML frontmatter is parsed and its `title` is used for the page title and search index.
 
 ### Fixed
+
+- **Saving unchanged content**: Saving a page without changes failed with "cannot create empty commit". go-git's `Status.File` reports an unchanged tracked file as untracked, so the no-change check never matched.
 
 - **Actions on nested pages**: Edit, save, source, history and every other page action returned 404 for a page below the top level, such as `docs/setup/edit`. A chi URL parameter cannot contain `/`, so `/{path}/edit` matched only single-segment paths; only viewing worked, through a separate catch-all. Page routes now split a known trailing action off the full path.
 

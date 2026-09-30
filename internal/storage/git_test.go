@@ -396,3 +396,96 @@ func TestMetadataDoesNotComputeFiles(t *testing.T) {
 		t.Error("ShowCommit().Files should be populated")
 	}
 }
+
+func TestStoreFilesOneCommit(t *testing.T) {
+	gs, err := NewGitStorage(t.TempDir(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	author := Author{Name: "Agent", Email: "agent@example.com"}
+	gs.Store("kb/old.md", "old", "init", author)
+
+	changed, err := gs.StoreFiles(map[string][]byte{
+		"kb/old.md":   []byte("updated"),
+		"kb/new/a.md": []byte("a"),
+		"kb/new/b.md": []byte("b"),
+	}, "agent run", author)
+	if err != nil || !changed {
+		t.Fatalf("StoreFiles = %v, %v; want true, nil", changed, err)
+	}
+
+	log, _ := gs.Log("", 0)
+	if len(log) != 2 || log[0].Message != "agent run" {
+		t.Fatalf("log = %+v, want one new commit", log)
+	}
+	meta, _, err := gs.ShowCommit(log[0].Revision)
+	if err != nil || len(meta.Files) != 3 {
+		t.Errorf("commit files = %v, %v; want all three", meta.Files, err)
+	}
+
+	changed, err = gs.StoreFiles(map[string][]byte{"kb/old.md": []byte("updated")}, "no-op", author)
+	if err != nil || changed {
+		t.Errorf("unchanged StoreFiles = %v, %v; want false, nil", changed, err)
+	}
+	if log, _ := gs.Log("", 0); len(log) != 2 {
+		t.Error("an unchanged batch must not commit")
+	}
+}
+
+func TestStoreFilesRejectsTraversalBeforeWriting(t *testing.T) {
+	dir := t.TempDir()
+	gs, err := NewGitStorage(dir, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = gs.StoreFiles(map[string][]byte{"a.md": []byte("a"), "../escape.md": []byte("x")}, "m", Author{Name: "a", Email: "a@a"})
+	if !errors.Is(err, ErrPathTraversal) {
+		t.Fatalf("err = %v, want ErrPathTraversal", err)
+	}
+	if gs.Exists("a.md") {
+		t.Error("no file may be written when one path is rejected")
+	}
+}
+
+func TestStoreFilesRollsBackOnFailure(t *testing.T) {
+	gs, err := NewGitStorage(t.TempDir(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	author := Author{Name: "a", Email: "a@a"}
+	gs.Store("a.md", "original", "init", author)
+	gs.Store("blocker", "a file where a directory is needed", "init", author)
+
+	// "blocker/x.md" cannot be written because "blocker" is a file. The files
+	// sort as a.md, blocker/x.md, so a.md is written first and must be restored.
+	_, err = gs.StoreFiles(map[string][]byte{"a.md": []byte("changed"), "blocker/x.md": []byte("x")}, "m", author)
+	if err == nil {
+		t.Fatal("StoreFiles should fail")
+	}
+	if content, _ := gs.Load("a.md", ""); content != "original" {
+		t.Errorf("a.md = %q, want the original content restored", content)
+	}
+
+	// The worktree is clean: a later single-file store commits only its file.
+	gs.Store("c.md", "c", "later", author)
+	log, _ := gs.Log("", 1)
+	meta, _, _ := gs.ShowCommit(log[0].Revision)
+	if len(meta.Files) != 1 || meta.Files[0] != "c.md" {
+		t.Errorf("later commit files = %v, want only c.md", meta.Files)
+	}
+}
+
+func TestStoreUnchangedContent(t *testing.T) {
+	gs, err := NewGitStorage(t.TempDir(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	author := Author{Name: "a", Email: "a@a"}
+	if changed, err := gs.Store("x.md", "same", "first", author); err != nil || !changed {
+		t.Fatalf("first Store = %v, %v; want true, nil", changed, err)
+	}
+	// Saving identical content is a no-op, not an "empty commit" error.
+	if changed, err := gs.Store("x.md", "same", "second", author); err != nil || changed {
+		t.Errorf("second Store = %v, %v; want false, nil", changed, err)
+	}
+}

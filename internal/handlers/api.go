@@ -49,6 +49,17 @@ type APIPage struct {
 	Revision string      `json:"revision,omitempty"`
 	Exists   bool        `json:"exists"`
 	Metadata *APICommit  `json:"metadata,omitempty"`
+	Sources  []APICitedRun `json:"sources,omitempty"`
+}
+
+// APICitedRun is a report run cited in a page's frontmatter `sources`, with
+// its current state. Period is empty when the run does not exist; newer_run is
+// set when a later run of the same period exists.
+type APICitedRun struct {
+	Page     string `json:"page"`
+	Run      int64  `json:"run"`
+	Period   string `json:"period,omitempty"`
+	NewerRun int64  `json:"newer_run,omitempty"`
 }
 
 // APICommit is the JSON representation of a commit.
@@ -121,7 +132,30 @@ type APISavePage struct {
 	Revision string `json:"revision"`
 }
 
+// APIReportRun is the JSON representation of a report run. Markdown, the
+// executed page, is included only when a single run is requested.
+type APIReportRun struct {
+	ID             int64  `json:"id"`
+	Period         string `json:"period"`
+	SourceHash     string `json:"source_hash"`
+	SourceRevision string `json:"source_revision"`
+	RunBy          string `json:"run_by"`
+	RunAt          string `json:"run_at"`
+	Markdown       string `json:"markdown,omitempty"`
+}
+
 // --- Conversion helpers ---
+
+func reportRunToAPI(run db.ReportRun) APIReportRun {
+	return APIReportRun{
+		ID:             run.ID,
+		Period:         run.Period,
+		SourceHash:     run.SourceHash,
+		SourceRevision: run.SourceRevision,
+		RunBy:          run.RunBy,
+		RunAt:          run.RunAt.UTC().Format(time.RFC3339),
+	}
+}
 
 func commitToAPI(c *storage.CommitMetadata) *APICommit {
 	if c == nil {

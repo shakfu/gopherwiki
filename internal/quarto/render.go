@@ -39,6 +39,9 @@ type Input struct {
 	// SourceRevision is the git revision the source came from, stored alongside
 	// the cached output.
 	SourceRevision string
+	// Params are passed to Quarto as `-P name:value` document parameters, such
+	// as a report's period. They are not part of the cache key.
+	Params map[string]string
 }
 
 // Runner executes an external command in a working directory. It is the seam
@@ -126,6 +129,7 @@ func renderEnv(interp Interpreters) []string {
 // production implementation; tests supply a fake.
 type pageRenderer interface {
 	RenderHTML(ctx context.Context, in Input) ([]byte, error)
+	RenderRun(ctx context.Context, in Input) (html, markdown []byte, err error)
 	RenderTo(ctx context.Context, in Input, f ExportFormat) ([]byte, error)
 }
 
@@ -161,13 +165,49 @@ func NewRenderer(caps Capabilities, timeout time.Duration, interp Interpreters, 
 // directory (including any executed outputs) is always removed. The OJS runtime
 // is injected into the result so Observable JS cells execute (see injectOJSRuntime).
 func (r *Renderer) RenderHTML(ctx context.Context, in Input) ([]byte, error) {
-	out, err := r.renderToFile(ctx, in.Source, []string{"--to", "html", "--embed-resources"}, "index.html")
-	if err != nil {
-		return nil, err
+	html, _, err := r.renderHTML(ctx, in, false)
+	return html, err
+}
+
+// RenderRun is RenderHTML that also returns the executed markdown: the source
+// with each cell's output in place, which Quarto keeps with keep-md. Both come
+// from one execution.
+func (r *Renderer) RenderRun(ctx context.Context, in Input) (html, markdown []byte, err error) {
+	return r.renderHTML(ctx, in, true)
+}
+
+func (r *Renderer) renderHTML(ctx context.Context, in Input, keepMD bool) (html, markdown []byte, err error) {
+	args := append([]string{"--to", "html", "--embed-resources"}, paramArgs(in.Params)...)
+	outputs := []string{"index.html"}
+	if keepMD {
+		// Quarto names the kept markdown after the output file.
+		args = append(args, "-M", "keep-md:true")
+		outputs = append(outputs, "index.html.md")
 	}
-	out = injectOJSRuntime(out, r.ojsRuntimeBundle())
-	out = rewriteOJSCDNs(out, r.ojsLibsBase)
-	return out, nil
+	files, err := r.renderFiles(ctx, in.Source, args, outputs...)
+	if err != nil {
+		return nil, nil, err
+	}
+	html = injectOJSRuntime(files[0], r.ojsRuntimeBundle())
+	html = rewriteOJSCDNs(html, r.ojsLibsBase)
+	if keepMD {
+		markdown = files[1]
+	}
+	return html, markdown, nil
+}
+
+// paramArgs converts document parameters to sorted `-P name:value` arguments.
+func paramArgs(params map[string]string) []string {
+	names := make([]string, 0, len(params))
+	for name := range params {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	args := make([]string, 0, 2*len(names))
+	for _, name := range names {
+		args = append(args, "-P", name+":"+params[name])
+	}
+	return args
 }
 
 // ojsRuntimeBundle lazily loads and caches Quarto's OJS runtime bundle. It
@@ -202,6 +242,16 @@ func (r *Renderer) RenderTo(ctx context.Context, in Input, f ExportFormat) ([]by
 // with the given extra args producing outName, and returns that file's bytes.
 // The temp directory (including any executed outputs) is always removed.
 func (r *Renderer) renderToFile(ctx context.Context, source string, extraArgs []string, outName string) ([]byte, error) {
+	files, err := r.renderFiles(ctx, source, extraArgs, outName)
+	if err != nil {
+		return nil, err
+	}
+	return files[0], nil
+}
+
+// renderFiles is renderToFile for a render that writes several files. The
+// first name is passed to Quarto as --output; the rest are read beside it.
+func (r *Renderer) renderFiles(ctx context.Context, source string, extraArgs []string, outNames ...string) ([][]byte, error) {
 	if !r.caps.Available {
 		return nil, ErrUnavailable
 	}
@@ -221,7 +271,7 @@ func (r *Renderer) renderToFile(ctx context.Context, source string, extraArgs []
 	defer cancel()
 
 	args := append([]string{"render", srcName}, extraArgs...)
-	args = append(args, "--output", outName)
+	args = append(args, "--output", outNames[0])
 	_, stderr, err := r.runner.Run(ctx, dir, r.caps.Path, args...)
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
@@ -230,11 +280,15 @@ func (r *Renderer) renderToFile(ctx context.Context, source string, extraArgs []
 		return nil, fmt.Errorf("quarto: render failed: %w: %s", err, string(stderr))
 	}
 
-	out, err := os.ReadFile(filepath.Join(dir, outName))
-	if err != nil {
-		return nil, fmt.Errorf("quarto: read output: %w", err)
+	files := make([][]byte, 0, len(outNames))
+	for _, name := range outNames {
+		out, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			return nil, fmt.Errorf("quarto: read output: %w", err)
+		}
+		files = append(files, out)
 	}
-	return out, nil
+	return files, nil
 }
 
 // Service is the gated render orchestrator. It bounds concurrency, renders a
@@ -366,6 +420,24 @@ func (s *Service) Render(ctx context.Context, in Input) (rendercache.Entry, erro
 		return rendercache.Entry{}, err
 	}
 	return entry, nil
+}
+
+// Run executes a page once and returns its HTML and executed markdown without
+// touching the cache. It backs frozen report runs, which the caller stores
+// permanently. Concurrency is bounded as for Render.
+func (s *Service) Run(ctx context.Context, in Input) (html, markdown []byte, err error) {
+	if !s.Available() {
+		return nil, nil, ErrUnavailable
+	}
+
+	select {
+	case s.sem <- struct{}{}:
+		defer func() { <-s.sem }()
+	case <-ctx.Done():
+		return nil, nil, ctx.Err()
+	}
+
+	return s.renderer.RenderRun(ctx, in)
 }
 
 // Invalidate removes any cached renders for a page (e.g. after its source is

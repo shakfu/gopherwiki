@@ -45,6 +45,10 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/"+homePage+"/edit", http.StatusFound)
 		return
 	}
+	if hidden, err := s.pageHidden(r, homePage, false); err != nil || hidden {
+		s.renderError(w, r, http.StatusNotFound, "Page not found")
+		return
+	}
 
 	// Render the page
 	s.renderPage(w, r, page)
@@ -599,6 +603,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			slog.Warn("search failed", "query", query, "error", err)
 		}
+		results = s.filterSearch(s.visibleOrHide(r), results)
 	}
 
 	data := NewGenericData("Search")
@@ -618,6 +623,7 @@ func (s *Server) handleSearchPartial(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			slog.Warn("search failed", "query", query, "error", err)
 		}
+		results = s.filterSearch(s.visibleOrHide(r), results)
 	}
 
 	data := map[string]interface{}{
@@ -648,6 +654,7 @@ func (s *Server) handleSearchDropdown(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			slog.Warn("search dropdown failed", "query", query, "error", err)
 		}
+		results = s.filterSearch(s.visibleOrHide(r), results)
 		if len(results) > 8 {
 			results = results[:8]
 		}
@@ -676,6 +683,7 @@ func (s *Server) handleChangelog(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		changelog = []storage.CommitMetadata{}
 	}
+	changelog = s.filterCommits(s.visibleOrHide(r), changelog)
 
 	data := NewGenericData("Changelog")
 	data["log"] = changelog
@@ -689,6 +697,10 @@ func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request) {
 	meta, diff, err := s.Wiki.ShowCommit(r.Context(), revision)
 	if err != nil {
 		s.renderError(w, r, http.StatusNotFound, err.Error())
+		return
+	}
+	if commitHidden(s.visibleOrHide(r), meta) {
+		s.renderError(w, r, http.StatusNotFound, "Commit not found")
 		return
 	}
 
@@ -753,6 +765,7 @@ func (s *Server) handlePageIndex(w http.ResponseWriter, r *http.Request) {
 		s.renderError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
+	entries = s.filterIndex(s.visibleOrHide(r), entries)
 
 	var pages []map[string]string
 	for _, entry := range entries {

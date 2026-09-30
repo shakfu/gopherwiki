@@ -119,3 +119,33 @@ func TestParseCRLF(t *testing.T) {
 		t.Fatalf("expected title Win with CRLF delimiters, got %+v", fm)
 	}
 }
+
+func TestReportSources(t *testing.T) {
+	fm, _ := Parse("---\ntitle: August analysis\nsources:\n  - page: reports/sales\n    run: 12\n  - page: reports/costs\n    run: 7\n---\n# Body\n")
+	got := fm.ReportSources()
+	want := []Source{{Page: "reports/sales", Run: 12}, {Page: "reports/costs", Run: 7}}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("ReportSources = %+v, want %+v", got, want)
+	}
+}
+
+func TestReportSourcesSkipsOtherShapes(t *testing.T) {
+	// A page may use `sources` for something else; its frontmatter must survive.
+	fm, body := Parse("---\ntitle: Notes\nsources:\n  - https://example.com\n  - page: reports/sales\n  - page: reports/sales\n    run: \"12\"\n  - page: reports/costs\n    run: 7\n---\n# Body\n")
+	if fm == nil || fm.Title != "Notes" || body != "# Body\n" {
+		t.Fatalf("frontmatter lost: fm = %+v, body = %q", fm, body)
+	}
+	got := fm.ReportSources()
+	if len(got) != 1 || got[0] != (Source{Page: "reports/costs", Run: 7}) {
+		t.Errorf("ReportSources = %+v, want only the well-formed entry", got)
+	}
+
+	fm, _ = Parse("---\nsources: a string\n---\n")
+	if fm.ReportSources() != nil {
+		t.Error("a scalar `sources` should yield no report sources")
+	}
+	var none *Frontmatter
+	if none.ReportSources() != nil {
+		t.Error("nil frontmatter should yield no report sources")
+	}
+}

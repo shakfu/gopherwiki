@@ -273,6 +273,40 @@ var migrations = []migration{
 		)`)
 		return err
 	}},
+	{10, "create report_runs table", func(ctx context.Context, conn *sql.DB) error {
+		if _, err := conn.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS report_runs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			filename TEXT NOT NULL,
+			period TEXT NOT NULL,
+			source_hash TEXT NOT NULL,
+			source_revision TEXT NOT NULL,
+			html BLOB NOT NULL,
+			markdown TEXT NOT NULL,
+			run_by TEXT NOT NULL,
+			run_at TIMESTAMP NOT NULL
+		)`); err != nil {
+			return err
+		}
+		_, err := conn.ExecContext(ctx,
+			`CREATE INDEX IF NOT EXISTS idx_report_runs_filename ON report_runs(filename)`)
+		return err
+	}},
+	{11, "create agent_pages and page_validations tables", func(ctx context.Context, conn *sql.DB) error {
+		if _, err := conn.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS agent_pages (
+			filename TEXT PRIMARY KEY,
+			first_written_at TIMESTAMP NOT NULL
+		)`); err != nil {
+			return err
+		}
+		_, err := conn.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS page_validations (
+			filename TEXT NOT NULL,
+			revision TEXT NOT NULL,
+			validated_by TEXT NOT NULL,
+			validated_at TIMESTAMP NOT NULL,
+			PRIMARY KEY (filename, revision)
+		)`)
+		return err
+	}},
 }
 
 // runMigrations runs versioned schema migrations, tracking progress
@@ -493,6 +527,26 @@ func (d *Database) GetBacklinks(ctx context.Context, target string) ([]string, e
 		sources = append(sources, s)
 	}
 	return sources, rows.Err()
+}
+
+// AllPageLinks returns every indexed wikilink as a (source, target) pair.
+func (d *Database) AllPageLinks(ctx context.Context) ([][2]string, error) {
+	rows, err := d.conn.QueryContext(ctx,
+		`SELECT source_pagepath, target_pagepath FROM page_links ORDER BY source_pagepath, target_pagepath`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var links [][2]string
+	for rows.Next() {
+		var l [2]string
+		if err := rows.Scan(&l[0], &l[1]); err != nil {
+			return nil, err
+		}
+		links = append(links, l)
+	}
+	return links, rows.Err()
 }
 
 // PageLinkData holds data for rebuilding page links.

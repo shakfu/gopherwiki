@@ -1,8 +1,12 @@
 package handlers
 
 import (
+	"database/sql"
+	"errors"
+	"fmt"
 	"net/http"
 	"path"
+	"strconv"
 	"strings"
 
 	"github.com/sa/gopherwiki/internal/middleware"
@@ -19,6 +23,7 @@ func (s *Server) handleAPIPageList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	entries = s.filterIndex(s.visibleOrHide(r), entries)
 	result := make([]APIPageIndex, 0, len(entries))
 	for _, e := range entries {
 		result = append(result, pageIndexToAPI(e))
@@ -44,6 +49,18 @@ func (s *Server) handleAPIPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Dispatch sub-resources by suffix
+	target := pagePath
+	for _, suffix := range []string{"/history", "/backlinks", "/runs"} {
+		target = strings.TrimSuffix(target, suffix)
+	}
+	if i := strings.LastIndex(target, "/runs/"); i > 0 {
+		target = target[:i]
+	}
+	if hidden, err := s.pageHidden(r, target, false); err != nil || hidden {
+		writeJSONError(w, http.StatusNotFound, "page not found")
+		return
+	}
+
 	switch {
 	case strings.HasSuffix(pagePath, "/history"):
 		pagePath = strings.TrimSuffix(pagePath, "/history")
@@ -53,6 +70,15 @@ func (s *Server) handleAPIPage(w http.ResponseWriter, r *http.Request) {
 		pagePath = strings.TrimSuffix(pagePath, "/backlinks")
 		s.handleAPIPageBacklinks(w, r, pagePath)
 		return
+	case strings.HasSuffix(pagePath, "/runs"):
+		s.handleAPIPageRuns(w, r, strings.TrimSuffix(pagePath, "/runs"))
+		return
+	}
+	if i := strings.LastIndex(pagePath, "/runs/"); i > 0 {
+		if id, err := strconv.ParseInt(pagePath[i+len("/runs/"):], 10, 64); err == nil {
+			s.handleAPIPageRun(w, r, pagePath[:i], id)
+			return
+		}
 	}
 
 	switch r.Method {
@@ -82,9 +108,16 @@ func (s *Server) handleAPIPageGet(w http.ResponseWriter, r *http.Request, pagePa
 		return
 	}
 
-	// ETag support
+	cited, err := s.citedRuns(r.Context(), page)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to resolve cited report runs")
+		return
+	}
+
+	// ETag support. Cited runs are folded in: a new run of a cited report
+	// changes the response without a new commit.
 	if page.Metadata != nil && page.Metadata.RevisionFull != "" {
-		etag := `"` + page.Metadata.RevisionFull + `"`
+		etag := `"` + page.Metadata.RevisionFull + citedETagSuffix(cited) + `"`
 		w.Header().Set("ETag", etag)
 		w.Header().Set("Cache-Control", "no-cache")
 		if match := r.Header.Get("If-None-Match"); match == etag {
@@ -93,7 +126,11 @@ func (s *Server) handleAPIPageGet(w http.ResponseWriter, r *http.Request, pagePa
 		}
 	}
 
-	writeJSON(w, http.StatusOK, pageToAPI(page))
+	result := pageToAPI(page)
+	for _, c := range cited {
+		result.Sources = append(result.Sources, APICitedRun(c))
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 // handleAPIPageSave handles PUT /api/v1/pages/{path} -- create or update page.
@@ -142,11 +179,109 @@ func (s *Server) handleAPIPageSave(w http.ResponseWriter, r *http.Request, pageP
 		return
 	}
 
+	if middleware.GetToken(r) != nil {
+		if err := s.DB.Queries.MarkAgentPage(r.Context(), updated.Filename); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "page saved but failed to mark it for validation")
+			return
+		}
+	}
+
 	status := http.StatusOK
 	if result.IsNew {
 		status = http.StatusCreated
 	}
 	writeJSON(w, status, pageToAPI(updated))
+}
+
+// maxBatchPages bounds one batch save.
+const maxBatchPages = 100
+
+// APIBatchSave is the JSON request body for a batch save.
+type APIBatchSave struct {
+	Message string         `json:"message"`
+	Pages   []APIBatchPage `json:"pages"`
+}
+
+// APIBatchPage is one page in a batch save.
+type APIBatchPage struct {
+	Path     string `json:"path"`
+	Content  string `json:"content"`
+	Revision string `json:"revision"`
+}
+
+// handleAPIBatchSave handles POST /api/v1/batch -- save several pages in one
+// commit. Every page is checked before anything is written; one failing page
+// fails the batch.
+func (s *Server) handleAPIBatchSave(w http.ResponseWriter, r *http.Request) {
+	var input APIBatchSave
+	if err := decodeJSON(r, &input); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if len(input.Pages) == 0 || len(input.Pages) > maxBatchPages {
+		writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("a batch holds 1 to %d pages", maxBatchPages))
+		return
+	}
+
+	token := middleware.GetToken(r)
+	edits := make([]wiki.PageEdit, 0, len(input.Pages))
+	for _, p := range input.Pages {
+		if p.Path == "" {
+			writeJSONError(w, http.StatusBadRequest, "page path required")
+			return
+		}
+		if hidden, err := s.pageHidden(r, p.Path, false); err != nil || hidden {
+			writeJSONError(w, http.StatusNotFound, "page not found: "+p.Path)
+			return
+		}
+		if token != nil {
+			page, err := wiki.NewPage(s.Storage, s.Config, p.Path, "")
+			if err != nil {
+				writeJSONError(w, http.StatusInternalServerError, "failed to load page")
+				return
+			}
+			if !underPrefix(token.WritePrefix, page.Filename) {
+				writeJSONError(w, http.StatusForbidden, "token may not write outside its prefix: "+p.Path)
+				return
+			}
+			if page.Exists && p.Revision == "" {
+				writeJSONError(w, http.StatusPreconditionRequired, "revision required to overwrite an existing page: "+p.Path)
+				return
+			}
+		}
+		edits = append(edits, wiki.PageEdit{Pagepath: p.Path, Content: p.Content, BaseRevision: p.Revision})
+	}
+
+	changed, conflict, err := s.Wiki.SavePages(r.Context(), edits, input.Message, s.getAuthor(r))
+	if errors.Is(err, wiki.ErrDuplicatePage) {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to save pages")
+		return
+	}
+	if conflict != "" {
+		writeJSONError(w, http.StatusConflict, "edit conflict: page was modified since your revision: "+conflict)
+		return
+	}
+
+	pages := make([]APIPage, 0, len(edits))
+	for _, e := range edits {
+		page, err := wiki.NewPage(s.Storage, s.Config, e.Pagepath, "")
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "pages saved but failed to reload")
+			return
+		}
+		if token != nil {
+			if err := s.DB.Queries.MarkAgentPage(r.Context(), page.Filename); err != nil {
+				writeJSONError(w, http.StatusInternalServerError, "pages saved but failed to mark them for validation")
+				return
+			}
+		}
+		pages = append(pages, pageToAPI(page))
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"changed": changed, "pages": pages})
 }
 
 // underPrefix reports whether a page file lies under a token's write prefix.
@@ -210,10 +345,61 @@ func (s *Server) handleAPIPageBacklinks(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
+	backlinks = s.filterPaths(s.visibleOrHide(r), backlinks)
 	if backlinks == nil {
 		backlinks = []string{}
 	}
 	writeJSON(w, http.StatusOK, backlinks)
+}
+
+// handleAPIPageRuns handles GET /api/v1/pages/{path}/runs -- a page's report
+// runs, newest first, without their output.
+func (s *Server) handleAPIPageRuns(w http.ResponseWriter, r *http.Request, pagePath string) {
+	if r.Method != http.MethodGet {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	page, err := wiki.NewPage(s.Storage, s.Config, pagePath, "")
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to load page")
+		return
+	}
+	runs, err := s.DB.Queries.ListReportRuns(r.Context(), page.Filename)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to list runs")
+		return
+	}
+	result := make([]APIReportRun, 0, len(runs))
+	for _, run := range runs {
+		result = append(result, reportRunToAPI(run))
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// handleAPIPageRun handles GET /api/v1/pages/{path}/runs/{id} -- one run with
+// its executed markdown.
+func (s *Server) handleAPIPageRun(w http.ResponseWriter, r *http.Request, pagePath string, id int64) {
+	if r.Method != http.MethodGet {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	page, err := wiki.NewPage(s.Storage, s.Config, pagePath, "")
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to load page")
+		return
+	}
+	run, err := s.DB.Queries.GetReportRun(r.Context(), page.Filename, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeJSONError(w, http.StatusNotFound, "run not found")
+		return
+	}
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to load run")
+		return
+	}
+	result := reportRunToAPI(run)
+	result.Markdown = run.Markdown
+	writeJSON(w, http.StatusOK, result)
 }
 
 // handleAPISearch handles GET /api/v1/search?q=...
@@ -230,6 +416,7 @@ func (s *Server) handleAPISearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	results = s.filterSearch(s.visibleOrHide(r), results)
 	apiResults := make([]APISearchResult, 0, len(results))
 	for _, r := range results {
 		apiResults = append(apiResults, searchResultToAPI(r))
@@ -244,6 +431,7 @@ func (s *Server) handleAPIChangelog(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusInternalServerError, "failed to get changelog")
 		return
 	}
+	changelog = s.filterCommits(s.visibleOrHide(r), changelog)
 
 	writeJSON(w, http.StatusOK, commitsToAPI(changelog))
 }

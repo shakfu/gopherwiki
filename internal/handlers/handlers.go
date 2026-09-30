@@ -3,11 +3,14 @@ package handlers
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"html/template"
 	"io/fs"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -35,6 +38,9 @@ type RenderService interface {
 	ExportAvailable() bool
 	// Render executes a page and stores its output, returning the cache entry.
 	Render(ctx context.Context, in quarto.Input) (rendercache.Entry, error)
+	// Run executes a page without caching and returns its HTML and executed
+	// markdown, for a report run the caller stores.
+	Run(ctx context.Context, in quarto.Input) (html, markdown []byte, err error)
 	// Cached returns the stored render for a page's current source, if present.
 	Cached(ctx context.Context, source, engine string) (rendercache.Entry, bool, error)
 	// Invalidate drops any cached renders for a page.
@@ -185,8 +191,10 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name str
 
 	// Add sidebar page tree when configured
 	if s.Config.SidebarMenutreeMode != "" {
-		if tree, err := s.Wiki.PageTree(r.Context()); err == nil && len(tree) > 0 {
-			data["sidebar_tree"] = tree
+		if tree, err := s.Wiki.PageTree(r.Context()); err == nil {
+			if tree = s.filterTree(s.visibleOrHide(r), tree); len(tree) > 0 {
+				data["sidebar_tree"] = tree
+			}
 		}
 	}
 
@@ -217,8 +225,35 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, page *wiki.P
 	// without a new commit (a re-render, or a render-pipeline change), so fold the
 	// render state into the ETag; otherwise a browser 304s and reuses stale page
 	// chrome after a re-render.
+	view, err := s.computationalView(r, page)
+	if errors.Is(err, errRunNotFound) {
+		s.renderNotFound(w, r, page)
+		return
+	}
+	if err != nil {
+		s.renderError(w, r, http.StatusInternalServerError, "Failed to load report runs")
+		return
+	}
+
+	cited, err := s.citedRuns(r.Context(), page)
+	if err != nil {
+		s.renderError(w, r, http.StatusInternalServerError, "Failed to resolve cited report runs")
+		return
+	}
+
+	validation, err := s.validationState(r.Context(), page)
+	if err != nil {
+		s.renderError(w, r, http.StatusInternalServerError, "Failed to load validation state")
+		return
+	}
+	// Validating a revision changes the page without a new commit.
+	validatedSuffix := ""
+	if validation.Validated {
+		validatedSuffix = "-validated"
+	}
+
 	if page.Metadata != nil && page.Metadata.RevisionFull != "" {
-		etag := `"` + page.Metadata.RevisionFull + s.renderETagSuffix(r.Context(), page) + `"`
+		etag := `"` + page.Metadata.RevisionFull + view.etagSuffix() + citedETagSuffix(cited) + validatedSuffix + `"`
 		w.Header().Set("ETag", etag)
 		w.Header().Set("Cache-Control", "no-cache")
 		if match := r.Header.Get("If-None-Match"); match == etag {
@@ -227,44 +262,152 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, page *wiki.P
 		}
 	}
 
-	htmlContent, toc, libRequirements := s.renderPageContent(r.Context(), page)
+	htmlContent, toc, libRequirements := s.renderPageContent(page, view)
 	data := NewPageData(page, template.HTML(htmlContent), toc, libRequirements)
 	data["export_formats"] = s.exportFormatLinks()
+	data["report_runs"] = view.runs
+	data["current_run"] = view.runID
+	data["cited_runs"] = cited
+	data["validation"] = validation
 
 	// Fetch backlinks
-	if backlinks, err := s.Wiki.Backlinks(r.Context(), page.Pagepath); err == nil && len(backlinks) > 0 {
-		data["backlinks"] = backlinks
+	if backlinks, err := s.Wiki.Backlinks(r.Context(), page.Pagepath); err == nil {
+		if backlinks = s.filterPaths(s.visibleOrHide(r), backlinks); len(backlinks) > 0 {
+			data["backlinks"] = backlinks
+		}
 	}
 
 	s.renderTemplate(w, r, "page.html", data)
 }
 
-// renderETagSuffix returns an ETag suffix that reflects a computational page's
-// current render state, so its page-view ETag changes when the rendered output
-// (or the render pipeline) changes even though the source commit has not. It is
-// empty for plain pages and when computational rendering is unavailable. A cache
-// hit contributes the content-addressed render key; a miss contributes a
-// "pending" marker so the placeholder view revalidates once a render lands.
-func (s *Server) renderETagSuffix(ctx context.Context, page *wiki.Page) string {
-	if !page.IsComputational || s.RenderService == nil || !s.RenderService.Available() {
+// errRunNotFound reports a ?run= that names no run of the page.
+var errRunNotFound = errors.New("report run not found")
+
+// computationalView is what a computational page's view embeds.
+type computationalView struct {
+	src   string         // iframe source; "" shows the page's own rendering
+	key   string         // identifies the embedded output in the page ETag
+	runs  []db.ReportRun // the page's report runs, newest first
+	runID int64          // the run shown, or 0
+}
+
+// etagSuffix folds the embedded output into the page ETag, so a new run or
+// render is not masked by a 304.
+func (v computationalView) etagSuffix() string {
+	if v.key == "" {
 		return ""
 	}
-	if entry, ok, err := s.RenderService.Cached(ctx, page.Content, pageEngine(page)); err == nil && ok {
-		return "-" + entry.Key
+	return "-" + v.key
+}
+
+// computationalView picks the output a computational page shows: the run named
+// by ?run=, else the newest run, else the cached render of the current source.
+// Runs are permanent records, so they are shown even when rendering is off.
+func (s *Server) computationalView(r *http.Request, page *wiki.Page) (computationalView, error) {
+	var v computationalView
+	if !page.IsComputational {
+		return v, nil
 	}
-	return "-pending"
+
+	runs, err := s.DB.Queries.ListReportRuns(r.Context(), page.Filename)
+	if err != nil {
+		return v, err
+	}
+	v.runs = runs
+
+	if param := r.URL.Query().Get("run"); param != "" {
+		id, _ := parseInt64(param)
+		for _, run := range runs {
+			if run.ID == id {
+				v.runID = id
+			}
+		}
+		if v.runID == 0 {
+			return v, errRunNotFound
+		}
+	} else if len(runs) > 0 {
+		v.runID = runs[0].ID
+	}
+	if v.runID != 0 {
+		v.src = fmt.Sprintf("%s/rendered?run=%d", page.PageViewURL, v.runID)
+		v.key = fmt.Sprintf("run%d", v.runID)
+		return v, nil
+	}
+
+	if s.RenderService == nil || !s.RenderService.Available() {
+		return v, nil
+	}
+	if entry, ok, err := s.RenderService.Cached(r.Context(), page.Content, pageEngine(page)); err == nil && ok {
+		v.src = page.PageViewURL + "/rendered"
+		v.key = entry.Key
+	} else {
+		// The placeholder view must revalidate once a render lands.
+		v.key = "pending"
+	}
+	return v, nil
+}
+
+// citedRun is the state of one report run that a page cites in its frontmatter
+// `sources`.
+type citedRun struct {
+	Page     string // sanitized path of the cited page
+	Run      int64
+	Period   string // "" when the page has no run with that ID
+	NewerRun int64  // the newest later run of the same period, or 0
+}
+
+// citedRuns resolves the report runs a page cites. A cited run is out of date
+// when a later run exists for the same period, as after a re-run on restated
+// data.
+func (s *Server) citedRuns(ctx context.Context, page *wiki.Page) ([]citedRun, error) {
+	var cited []citedRun
+	for _, src := range page.Frontmatter.ReportSources() {
+		target, err := wiki.NewPage(s.Storage, s.Config, src.Page, "")
+		if err != nil {
+			return nil, err
+		}
+		c := citedRun{Page: target.Pagepath, Run: src.Run}
+		runs, err := s.DB.Queries.ListReportRuns(ctx, target.Filename)
+		if err != nil {
+			return nil, err
+		}
+		for _, run := range runs {
+			if run.ID == src.Run {
+				c.Period = run.Period
+			}
+		}
+		// Runs are newest first, so the first later match is the newest.
+		for _, run := range runs {
+			if c.Period != "" && run.Period == c.Period && run.ID > src.Run {
+				c.NewerRun = run.ID
+				break
+			}
+		}
+		cited = append(cited, c)
+	}
+	return cited, nil
+}
+
+// citedETagSuffix folds the state of cited runs into the page ETag, so a new
+// run of a cited report is not masked by a 304.
+func citedETagSuffix(cited []citedRun) string {
+	var b strings.Builder
+	for _, c := range cited {
+		fmt.Fprintf(&b, "-%d.%d", c.Run, c.NewerRun)
+		if c.Period == "" {
+			b.WriteString("x")
+		}
+	}
+	return b.String()
 }
 
 // renderPageContent produces the main HTML content for a page view. Plain pages
-// render in-process via goldmark. A computational page whose output is cached is
-// embedded via an iframe pointing at the rendered-output endpoint; if it is not
-// yet rendered (cache miss, or rendering unavailable) it falls back to the
-// render-pending placeholder. On-view execution never happens here.
-func (s *Server) renderPageContent(ctx context.Context, page *wiki.Page) (string, []renderer.TOCEntry, renderer.LibraryRequirements) {
-	if page.IsComputational && s.RenderService != nil && s.RenderService.Available() {
-		if _, ok, err := s.RenderService.Cached(ctx, page.Content, pageEngine(page)); err == nil && ok {
-			return computationalIframe(page.PageViewURL), nil, renderer.LibraryRequirements{}
-		}
+// render in-process via goldmark. A computational page with output embeds it via
+// an iframe pointing at the rendered-output endpoint; otherwise it falls back to
+// the render-pending placeholder. On-view execution never happens here.
+func (s *Server) renderPageContent(page *wiki.Page, view computationalView) (string, []renderer.TOCEntry, renderer.LibraryRequirements) {
+	if view.src != "" {
+		return computationalIframe(view.src), nil, renderer.LibraryRequirements{}
 	}
 	return page.Render(s.Renderer)
 }

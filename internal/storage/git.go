@@ -257,8 +257,7 @@ func (g *GitStorage) StoreBytes(filename string, content []byte, message string,
 		return false, err
 	}
 
-	fileStatus := status.File(filename)
-	if fileStatus.Staging == git.Unmodified && fileStatus.Worktree == git.Unmodified {
+	if !fileChanged(status, filename) {
 		return false, nil
 	}
 
@@ -274,6 +273,99 @@ func (g *GitStorage) StoreBytes(filename string, content []byte, message string,
 		return false, err
 	}
 
+	return true, nil
+}
+
+// fileChanged reports whether a file differs from HEAD. Status omits unchanged
+// tracked files, and Status.File reports an omitted file as untracked, so the
+// map is read directly.
+func fileChanged(status git.Status, filename string) bool {
+	fs, ok := status[filename]
+	return ok && (fs.Staging != git.Unmodified || fs.Worktree != git.Unmodified)
+}
+
+// StoreFiles writes several files and commits them in one commit. If a write
+// or the commit fails, every file is restored to its previous content, so the
+// worktree holds no half-applied batch.
+func (g *GitStorage) StoreFiles(files map[string][]byte, message string, author Author) (bool, error) {
+	names := make([]string, 0, len(files))
+	for name := range files {
+		if err := g.validatePath(name); err != nil {
+			return false, err
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	// Record each file's previous content (nil when absent) for rollback.
+	previous := make(map[string][]byte, len(names))
+	for _, name := range names {
+		old, err := os.ReadFile(filepath.Join(g.path, name))
+		if err != nil && !os.IsNotExist(err) {
+			return false, err
+		}
+		previous[name] = old
+	}
+	restore := func() {
+		for _, name := range names {
+			full := filepath.Join(g.path, name)
+			if old := previous[name]; old != nil {
+				_ = os.WriteFile(full, old, 0o644)
+			} else {
+				_ = os.Remove(full)
+			}
+		}
+	}
+
+	for _, name := range names {
+		full := filepath.Join(g.path, name)
+		if err := os.MkdirAll(filepath.Dir(full), 0o775); err != nil {
+			restore()
+			return false, err
+		}
+		if err := os.WriteFile(full, files[name], 0o644); err != nil {
+			restore()
+			return false, err
+		}
+	}
+
+	worktree, err := g.repo.Worktree()
+	if err != nil {
+		restore()
+		return false, err
+	}
+	status, err := worktree.Status()
+	if err != nil {
+		restore()
+		return false, err
+	}
+	var changed []string
+	for _, name := range names {
+		if fileChanged(status, name) {
+			changed = append(changed, name)
+		}
+	}
+	if len(changed) == 0 {
+		return false, nil
+	}
+
+	// A later commit takes the whole index, so a failure after staging must
+	// also reset the index to HEAD.
+	unstage := func() { _ = worktree.Reset(&git.ResetOptions{Mode: git.MixedReset}) }
+	for _, name := range changed {
+		if _, err := worktree.Add(name); err != nil {
+			unstage()
+			restore()
+			return false, err
+		}
+	}
+	if _, err := worktree.Commit(message, &git.CommitOptions{Author: makeSignature(author)}); err != nil {
+		unstage()
+		restore()
+		return false, err
+	}
 	return true, nil
 }
 

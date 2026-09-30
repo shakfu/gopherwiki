@@ -7,9 +7,11 @@ import (
 	"html"
 	"log/slog"
 	"net/http"
+	"regexp"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/sa/gopherwiki/internal/db"
 	"github.com/sa/gopherwiki/internal/middleware"
 	"github.com/sa/gopherwiki/internal/quarto"
 	"github.com/sa/gopherwiki/internal/wiki"
@@ -95,6 +97,12 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 		Engine:         pageEngine(page),
 		SourceRevision: pageRevision(page),
 	}
+
+	if period := r.FormValue("period"); period != "" {
+		s.runReport(w, r, page, in, period)
+		return
+	}
+
 	if _, err := s.RenderService.Render(r.Context(), in); err != nil {
 		slog.Error("computational render failed", "page", page.Pagepath, "error", err)
 		s.renderError(w, r, http.StatusInternalServerError, "Render failed: "+err.Error())
@@ -103,6 +111,43 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 
 	s.SessionManager.AddFlashMessage(w, r, "success", "Page rendered successfully")
 	http.Redirect(w, r, "/"+page.Pagepath, http.StatusFound)
+}
+
+// periodPattern accepts a calendar month, the one period format reports use.
+var periodPattern = regexp.MustCompile(`^[0-9]{4}-(0[1-9]|1[0-2])$`)
+
+// runReport executes a page for a period and stores the result as a permanent
+// report run. The period reaches the page as the Quarto parameter "period".
+func (s *Server) runReport(w http.ResponseWriter, r *http.Request, page *wiki.Page, in quarto.Input, period string) {
+	if !periodPattern.MatchString(period) {
+		s.renderError(w, r, http.StatusBadRequest, "The period must be a month, written YYYY-MM")
+		return
+	}
+	in.Params = map[string]string{"period": period}
+
+	html, markdown, err := s.RenderService.Run(r.Context(), in)
+	if err != nil {
+		slog.Error("report run failed", "page", page.Pagepath, "period", period, "error", err)
+		s.renderError(w, r, http.StatusInternalServerError, "Render failed: "+err.Error())
+		return
+	}
+
+	id, err := s.DB.Queries.CreateReportRun(r.Context(), db.ReportRun{
+		Filename:       page.Filename,
+		Period:         period,
+		SourceHash:     codeHash(page.Content),
+		SourceRevision: in.SourceRevision,
+		RunBy:          s.getAuthor(r).Email,
+		HTML:           html,
+		Markdown:       string(markdown),
+	})
+	if err != nil {
+		s.renderError(w, r, http.StatusInternalServerError, "Failed to store the report run")
+		return
+	}
+
+	s.SessionManager.AddFlashMessage(w, r, "success", "Report run for "+period+" stored")
+	http.Redirect(w, r, fmt.Sprintf("/%s?run=%d", page.Pagepath, id), http.StatusFound)
 }
 
 // codeHash identifies a page source for approval. It covers the whole source:
@@ -173,6 +218,23 @@ func (s *Server) handleRendered(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Not found", http.StatusNotFound)
 		return
 	}
+
+	// A stored run is served even when rendering is off: it is a record.
+	if param := r.URL.Query().Get("run"); param != "" {
+		id, err := parseInt64(param)
+		if err != nil {
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
+		run, err := s.DB.Queries.GetReportRun(r.Context(), page.Filename, id)
+		if err != nil {
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
+		s.writeRendered(w, r, fmt.Sprintf("run%d", run.ID), run.HTML)
+		return
+	}
+
 	if s.RenderService == nil || !s.RenderService.Available() {
 		http.Error(w, "Not found", http.StatusNotFound)
 		return
@@ -183,10 +245,13 @@ func (s *Server) handleRendered(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Not rendered yet", http.StatusNotFound)
 		return
 	}
+	s.writeRendered(w, r, entry.Key, entry.HTML)
+}
 
-	// The output is content-addressed by the cache key, so it can be cached
-	// strongly and revalidated cheaply with an ETag.
-	etag := `"` + entry.Key + `"`
+// writeRendered serves rendered output under the relaxed rendered-output CSP.
+// The output never changes for a given key, so an ETag revalidates it cheaply.
+func (s *Server) writeRendered(w http.ResponseWriter, r *http.Request, key string, html []byte) {
+	etag := `"` + key + `"`
 	if match := r.Header.Get("If-None-Match"); match == etag {
 		w.WriteHeader(http.StatusNotModified)
 		return
@@ -195,12 +260,13 @@ func (s *Server) handleRendered(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Security-Policy", s.renderedContentSecurityPolicy())
 	w.Header().Set("ETag", etag)
 	w.Header().Set("Cache-Control", "private, no-cache")
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(entry.HTML)))
-	w.Write(entry.HTML)
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(html)))
+	w.Write(html)
 }
 
 // computationalIframe returns the iframe markup that embeds a computational
-// page's rendered output (served by handleRendered) inside the wiki chrome.
+// page's rendered output (served by handleRendered, at src) inside the wiki
+// chrome.
 //
 // The iframe is sandboxed to allow scripts (Quarto output is interactive, e.g.
 // Observable JS, plotly, mermaid) and same-origin. allow-same-origin is required
@@ -214,8 +280,8 @@ func (s *Server) handleRendered(w http.ResponseWriter, r *http.Request) {
 // docs/computational-pages.md Section 7, where OJS is explicitly "trusted author
 // JavaScript"). The hardened alternative -- serving rendered output from a
 // separate origin so allow-same-origin cannot reach the wiki -- is deferred.
-func computationalIframe(pageViewURL string) string {
-	src := html.EscapeString(pageViewURL + "/rendered")
+func computationalIframe(src string) string {
+	src = html.EscapeString(src)
 	return `<iframe class="computational-render" src="` + src + `" ` +
 		`title="Rendered computational output" loading="lazy" ` +
 		`sandbox="allow-scripts allow-same-origin allow-popups allow-downloads" ` +

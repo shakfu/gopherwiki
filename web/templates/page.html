@@ -80,9 +80,44 @@
 {{end}}
 
 {{define "page_content"}}
+{{with .validation}}{{if .Agent}}
+{{if .Validated}}
+<div class="alert alert-success" role="status">Written by the agent. This revision was validated by {{.By}} on {{.At.Format "2006-01-02"}}.</div>
+{{else}}
+<div class="alert alert-secondary" role="status">
+    <p>Written by the agent. This revision has not been validated.</p>
+    {{if $.permissions.review}}
+    <form action="/{{$.pagepath}}/validate" method="post">
+{{template "csrfField" $.csrf_token}}
+        <input type="hidden" name="revision" value="{{.Revision}}">
+        <button type="submit" class="btn btn-primary">Validate this revision</button>
+    </form>
+    {{end}}
+</div>
+{{end}}
+{{end}}{{end}}
 <div class="page">
 {{.htmlcontent}}
 </div>
+{{if .cited_runs}}
+<div class="cited-runs mt-20">
+    <h4>Sources</h4>
+    <ul>
+    {{range .cited_runs}}<li>
+        {{if .Period}}<a href="/{{.Page}}?run={{.Run}}">{{.Page}}, {{.Period}} (run {{.Run}})</a>{{if .NewerRun}}. <strong>Out of date:</strong> <a href="/{{.Page}}?run={{.NewerRun}}">run {{.NewerRun}}</a> is newer.{{end}}
+        {{else}}{{.Page}}, run {{.Run}}. <strong>Not found.</strong>{{end}}
+    </li>{{end}}
+    </ul>
+</div>
+{{end}}
+{{if .report_runs}}
+<div class="report-runs mt-20">
+    <h4>Report runs</h4>
+    <ul>
+    {{range .report_runs}}<li><a href="/{{$.pagepath}}?run={{.ID}}">{{.Period}}</a>, run {{.RunAt.Format "2006-01-02 15:04"}} by {{.RunBy}}{{if eq .ID $.current_run}} (shown){{end}}</li>{{end}}
+    </ul>
+</div>
+{{end}}
 {{if .backlinks}}
 <div class="backlinks mt-20">
     <h4>What links here</h4>

@@ -2,6 +2,8 @@ package wiki
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"regexp"
 	"sort"
@@ -414,6 +416,56 @@ func (ws *WikiService) SavePage(ctx context.Context, pagepath, content, message,
 	}
 
 	return &SavePageResult{Page: page, Changed: changed, IsNew: isNew}, nil
+}
+
+// PageEdit is one page in a batch save.
+type PageEdit struct {
+	Pagepath     string
+	Content      string
+	BaseRevision string // as for SavePage; "" skips conflict detection
+}
+
+// ErrDuplicatePage is returned when a batch names the same page twice.
+var ErrDuplicatePage = errors.New("wiki: page appears twice in the batch")
+
+// SavePages saves several pages in one commit, so one revert undoes them all.
+// If any page conflicts with its base revision, nothing is saved and the
+// conflicting page path is returned.
+func (ws *WikiService) SavePages(ctx context.Context, edits []PageEdit, message string, author storage.Author) (changed bool, conflict string, err error) {
+	files := make(map[string][]byte, len(edits))
+	pages := make([]*Page, 0, len(edits))
+	for _, e := range edits {
+		page, err := NewPage(ws.store, ws.config, e.Pagepath, "")
+		if err != nil {
+			return false, "", err
+		}
+		if _, dup := files[page.Filename]; dup {
+			return false, "", fmt.Errorf("%w: %s", ErrDuplicatePage, page.Pagepath)
+		}
+		if e.BaseRevision != "" && page.Exists && page.Metadata != nil && page.Metadata.Revision != e.BaseRevision {
+			return false, page.Pagepath, nil
+		}
+		files[page.Filename] = []byte(e.Content)
+		pages = append(pages, page)
+	}
+
+	if message == "" {
+		message = fmt.Sprintf("Updated %d pages", len(edits))
+	}
+	changed, err = ws.store.StoreFiles(files, message, author)
+	if err != nil {
+		return false, "", err
+	}
+
+	for i, page := range pages {
+		if err := ws.IndexPage(ctx, page.Pagepath, edits[i].Content); err != nil {
+			slog.Warn("failed to index page", "path", page.Pagepath, "error", err)
+		}
+	}
+	if changed {
+		ws.InvalidatePageTreeCache()
+	}
+	return changed, "", nil
 }
 
 // DeletePage deletes a wiki page (and its attachments) and removes it from the search index.

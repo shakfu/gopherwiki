@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -18,6 +19,7 @@ import (
 // path, capturing the args and working dir it was invoked with.
 type fakeRunner struct {
 	html     string
+	markdown string // written as the kept markdown when keep-md is requested
 	err      error
 	gotArgs  []string
 	gotDir   string
@@ -40,6 +42,9 @@ func (f *fakeRunner) Run(ctx context.Context, dir, name string, args ...string) 
 	out := outputArg(args)
 	if out != "" {
 		_ = os.WriteFile(filepath.Join(dir, out), []byte(f.html), 0o600)
+		if strings.Contains(strings.Join(args, " "), "keep-md:true") {
+			_ = os.WriteFile(filepath.Join(dir, out+".md"), []byte(f.markdown), 0o600)
+		}
 	}
 	return []byte("rendered"), nil, nil
 }
@@ -205,6 +210,14 @@ func (f *fakeHTMLRenderer) RenderHTML(ctx context.Context, in Input) ([]byte, er
 	return []byte(f.html + ":" + in.Pagepath), nil
 }
 
+func (f *fakeHTMLRenderer) RenderRun(ctx context.Context, in Input) ([]byte, []byte, error) {
+	html, err := f.RenderHTML(ctx, in)
+	if err != nil {
+		return nil, nil, err
+	}
+	return html, []byte("md:" + in.Params["period"]), nil
+}
+
 func (f *fakeHTMLRenderer) RenderTo(ctx context.Context, in Input, ef ExportFormat) ([]byte, error) {
 	if f.err != nil {
 		return nil, f.err
@@ -361,5 +374,79 @@ func TestIntegrationRealQuartoRender(t *testing.T) {
 	}
 	if _, ok, _ := s.Cached(context.Background(), src, ""); !ok {
 		t.Error("expected render to be cached")
+	}
+}
+
+func TestRenderRunPassesParamsAndReturnsMarkdown(t *testing.T) {
+	fr := &fakeRunner{html: "<html>OK</html>", markdown: "| 2026-08 | 4500000 |"}
+	r := &Renderer{caps: availableCaps(), runner: fr, timeout: time.Second}
+
+	html, md, err := r.RenderRun(context.Background(), Input{Source: "s", Params: map[string]string{"period": "2026-08"}})
+	if err != nil {
+		t.Fatalf("RenderRun: %v", err)
+	}
+	if string(html) != "<html>OK</html>" || string(md) != "| 2026-08 | 4500000 |" {
+		t.Errorf("html = %q, markdown = %q", html, md)
+	}
+	joined := strings.Join(fr.gotArgs, " ")
+	for _, want := range []string{"--to html", "-P period:2026-08", "-M keep-md:true", "--output index.html"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("args %q missing %q", joined, want)
+		}
+	}
+}
+
+func TestRenderHTMLPassesParamsWithoutKeepMD(t *testing.T) {
+	fr := &fakeRunner{html: "<html>OK</html>"}
+	r := &Renderer{caps: availableCaps(), runner: fr, timeout: time.Second}
+
+	if _, err := r.RenderHTML(context.Background(), Input{Source: "s", Params: map[string]string{"b": "2", "a": "1"}}); err != nil {
+		t.Fatalf("RenderHTML: %v", err)
+	}
+	joined := strings.Join(fr.gotArgs, " ")
+	if !strings.Contains(joined, "-P a:1 -P b:2") {
+		t.Errorf("args %q should carry sorted params", joined)
+	}
+	if strings.Contains(joined, "keep-md") {
+		t.Errorf("args %q should not keep markdown", joined)
+	}
+}
+
+func TestServiceRunDoesNotCache(t *testing.T) {
+	fr := &fakeHTMLRenderer{html: "<html>"}
+	s, cache := newServiceWithFake(t, fr, 1)
+
+	html, md, err := s.Run(context.Background(), Input{Pagepath: "p", Source: "src", Params: map[string]string{"period": "2026-08"}})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if string(html) != "<html>:p" || string(md) != "md:2026-08" {
+		t.Errorf("html = %q, markdown = %q", html, md)
+	}
+	if _, ok, _ := cache.Get(context.Background(), s.CachedKey("src", "")); ok {
+		t.Error("a run must not be written to the render cache")
+	}
+}
+
+func TestIntegrationRealQuartoRunWithPeriod(t *testing.T) {
+	caps := Detect(context.Background(), "")
+	if !caps.Available {
+		t.Skip("quarto not installed")
+	}
+	if _, err := exec.LookPath("Rscript"); err != nil {
+		t.Skip("R not installed")
+	}
+
+	r := NewRenderer(caps, 120*time.Second, Interpreters{}, "")
+	src := "---\ntitle: Report\nengine: knitr\nparams:\n  period: none\n---\n\n```{r}\nrevenue <- 42\n```\n\nRevenue for `r params$period` was `r revenue`.\n"
+	html, md, err := r.RenderRun(context.Background(), Input{Source: src, Params: map[string]string{"period": "2026-08"}})
+	if err != nil {
+		t.Fatalf("RenderRun: %v", err)
+	}
+	if !strings.Contains(string(md), "Revenue for 2026-08 was 42.") {
+		t.Errorf("executed markdown missing the computed sentence:\n%s", md)
+	}
+	if !strings.Contains(string(html), "Revenue for 2026-08 was 42.") {
+		t.Error("HTML missing the computed sentence")
 	}
 }

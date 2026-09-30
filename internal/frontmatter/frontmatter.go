@@ -53,6 +53,35 @@ type Frontmatter struct {
 	Raw map[string]any `yaml:"-"`
 }
 
+// Source is a report run that a page cites: a computational page and the ID of
+// one of its runs.
+type Source struct {
+	Page string
+	Run  int64
+}
+
+// ReportSources returns the entries of the `sources` list that name a report
+// run, written as `{page: <path>, run: <id>}`. Entries of any other shape are
+// skipped. They are read from Raw rather than a typed field, because a typed
+// field that failed to decode would discard the whole frontmatter block.
+func (f *Frontmatter) ReportSources() []Source {
+	if f == nil {
+		return nil
+	}
+	list, _ := f.Raw["sources"].([]any)
+	var sources []Source
+	for _, item := range list {
+		entry, _ := item.(map[string]any)
+		page, _ := entry["page"].(string)
+		run, ok := entry["run"].(int)
+		if page == "" || !ok || run <= 0 {
+			continue
+		}
+		sources = append(sources, Source{Page: page, Run: int64(run)})
+	}
+	return sources
+}
+
 // UnmarshalYAML normalizes the freeze scalar, which YAML may present as either a
 // string ("auto") or a boolean (true/false).
 func (f *Freeze) UnmarshalYAML(value *yaml.Node) error {

@@ -16,6 +16,7 @@ func (s *Server) handleFeed(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Warn("failed to get changelog for feed", "error", err)
 	}
+	changelog = s.filterCommits(s.visibleOrHide(r), changelog)
 
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
 	fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
@@ -46,6 +47,7 @@ func (s *Server) handleAtomFeed(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Warn("failed to get changelog for feed", "error", err)
 	}
+	changelog = s.filterCommits(s.visibleOrHide(r), changelog)
 
 	w.Header().Set("Content-Type", "application/atom+xml; charset=utf-8")
 	fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
@@ -89,6 +91,7 @@ func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Warn("failed to get page index for sitemap", "error", err)
 	}
+	pages = s.filterIndex(s.visibleOrHide(r), pages)
 
 	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
 	fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?>

@@ -182,6 +182,18 @@ Why SQLite over a dedicated key/value store: the workload is read-mostly with ra
 
 The **`_freeze/` execution cache** is separate: it is a compute *input*, not served output. It lives as a persistent working cache on the render host (a named volume, not `tmp`), never in git and never in the SQLite output cache. If renders run on ephemeral CI, persist `_freeze/` as a build cache to avoid re-executing unchanged pages.
 
+### 5.1.1 Report runs
+
+A render with a period is a report run. It is stored permanently in the primary database, not in the render cache.
+
+- The period is a month, `YYYY-MM`. It reaches the page as the Quarto parameter `period`: `params$period` under knitr, or a variable set in a cell tagged `parameters` under Jupyter. The Jupyter form follows Quarto's documentation and is not tested here.
+- One execution produces the HTML and the executed markdown (Quarto's `keep-md`): the source with each cell's output in place.
+- Running a period again adds a run and keeps the earlier one.
+- A page with runs shows its newest run; `?run=<id>` shows another. Runs stay readable when rendering is switched off.
+- Each run records the source hash and git revision it came from, who ran it and when.
+
+The period is not part of the source hash, so one code approval (section 7.1) covers every month.
+
 ### 5.2 Cache miss: render-pending placeholder
 
 With output in a cache rather than git, a reader can hit a computational page whose blob was never rendered or has been evicted. Because on-view execution is forbidden (Tier 1 rule), a miss must **not** trigger a render. Instead the page serves a **"render pending" placeholder** within the normal wiki chrome -- stating that the page contains computations an editor must render, and offering the "Render" action to authenticated editors. This is the one behavioral cost of moving output out of git (git-committed output was always present on clone); it is acceptable and must be an explicit, styled state rather than a blank or an error.

@@ -38,6 +38,15 @@ func (f *fakeRenderService) Render(ctx context.Context, in quarto.Input) (render
 	return rendercache.Entry{Key: "k", Pagepath: in.Pagepath, HTML: []byte("<html>ok</html>")}, nil
 }
 
+func (f *fakeRenderService) Run(ctx context.Context, in quarto.Input) ([]byte, []byte, error) {
+	f.calls++
+	f.lastInput = in
+	if f.err != nil {
+		return nil, nil, f.err
+	}
+	return []byte("<html>run " + in.Params["period"] + "</html>"), []byte("| " + in.Params["period"] + " | 42 |"), nil
+}
+
 func (f *fakeRenderService) Cached(ctx context.Context, source, engine string) (rendercache.Entry, bool, error) {
 	return f.cachedEntry, f.cachedOK, nil
 }

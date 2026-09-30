@@ -36,6 +36,11 @@
 {{else if and .can_render $.permissions.write}}
 <form action="/{{$.pagepath}}/render" method="post" class="mb-20">
 {{template "csrfField" $.csrf_token}}
+    <div class="form-group">
+        <label for="period">Period</label>
+        <input type="text" name="period" id="period" class="form-control" placeholder="YYYY-MM" pattern="[0-9]{4}-(0[1-9]|1[0-2])">
+        <small class="form-text text-muted">Optional. With a period, the page runs with the parameter <code>period</code> and the result is stored permanently as a report run.</small>
+    </div>
     <button type="submit" class="btn btn-primary">Render</button>
     {{if .approval_required}}<small class="text-muted">This source is approved.</small>{{end}}
 </form>

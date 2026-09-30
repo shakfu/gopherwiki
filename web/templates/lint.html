@@ -1,0 +1,28 @@
+{{define "generic_content"}}
+<h1>Lint</h1>
+
+<p>Deterministic checks over the wiki. Agent pages are also checked for validation and for the report runs they cite.</p>
+
+{{if .issues}}
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>Page</th>
+            <th>Check</th>
+            <th>Detail</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .issues}}
+        <tr>
+            <td><a href="/{{.Page}}">{{.Page}}</a></td>
+            <td><code>{{.Check}}</code></td>
+            <td>{{.Detail}}</td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+{{else}}
+<p>No findings.</p>
+{{end}}
+{{end}}

@@ -127,6 +127,7 @@ func (s *Server) Routes() chi.Router {
 			r.Get("/changelog", s.handleChangelog)
 			r.Get("/commit/{revision}", s.handleCommit)
 			r.Get("/pageindex", s.handlePageIndex)
+			r.Get("/lint", s.handleLint)
 			r.Get("/feed", s.handleFeed)
 			r.Get("/feed.rss", s.handleFeed)
 			r.Get("/feed.atom", s.handleAtomFeed)
@@ -183,6 +184,7 @@ func (s *Server) Routes() chi.Router {
 				r.Get("/pages/*", s.handleAPIPage)
 				r.Get("/search", s.handleAPISearch)
 				r.Get("/changelog", s.handleAPIChangelog)
+				r.Get("/lint", s.handleAPILint)
 				r.Get("/issues", s.handleAPIIssueList)
 				r.Get("/issues/{id}", s.handleAPIIssueGet)
 				r.Get("/issues/{id}/comments", s.handleAPIIssueComments)
@@ -192,6 +194,7 @@ func (s *Server) Routes() chi.Router {
 			r.Group(func(r chi.Router) {
 				r.Use(s.PermissionChecker.RequireWrite)
 				r.Put("/pages/*", s.handleAPIPage)
+				r.Post("/batch", s.handleAPIBatchSave)
 				r.Delete("/pages/*", s.handleAPIPage)
 				r.Post("/issues", s.handleAPIIssueCreate)
 				r.Put("/issues/{id}", s.handleAPIIssueUpdate)
@@ -259,6 +262,7 @@ func (s *Server) pageActions() map[string]pageAction {
 		"DELETE draft":     {write, s.handleDraftDelete},
 		"POST render":      {write, s.handleRender},
 		"POST approve":     {s.PermissionChecker.RequireReview, s.handleApprove},
+		"POST validate":    {s.PermissionChecker.RequireReview, s.handleValidate},
 		"POST attachments": {s.PermissionChecker.RequireUpload, s.handleUploadAttachment},
 	}
 }
@@ -270,17 +274,29 @@ func (s *Server) dispatchPage(w http.ResponseWriter, r *http.Request, actions ma
 	path := chi.URLParam(r, "*")
 	route := pageAction{s.PermissionChecker.RequireRead, s.handleView}
 	found := r.Method == http.MethodGet
+	view := true
 
 	if i := strings.LastIndex(path, "/"); i > 0 {
 		action := path[i+1:]
 		if a, ok := actions[r.Method+" "+action]; ok {
-			route, found, path = a, true, path[:i]
+			route, found, path, view = a, true, path[:i], false
 		} else if isPageAction(actions, action) {
 			found = false
 		}
 	}
 	if !found {
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Every action on a hidden page answers as if the page did not exist.
+	hidden, err := s.pageHidden(r, path, view)
+	if err != nil {
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+	if hidden {
+		http.NotFound(w, r)
 		return
 	}
 

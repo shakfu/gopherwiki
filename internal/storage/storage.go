@@ -72,6 +72,10 @@ type Storage interface {
 	// StoreBytes writes binary content to a file and commits it.
 	StoreBytes(filename string, content []byte, message string, author Author) (bool, error)
 
+	// StoreFiles writes several files and commits them together. It reports
+	// false, and makes no commit, when no file changed.
+	StoreFiles(files map[string][]byte, message string, author Author) (bool, error)
+
 	// Delete removes a file or directory.
 	Delete(filename string, message string, author Author) error
 

@@ -70,55 +70,85 @@ Usage is in `docs/API.md`.
 - The token's user is the commit author. History and blame then separate agent
   edits from human edits.
 
-### 2. Executed report as markdown
+### 2. Executed report as markdown (implemented)
 
 The agent needs the report's figures without the code.
 
-- A render stores an executed GFM output beside the HTML.
-- `GET /-/api/v1/pages/{path}/rendered` returns it with the render's hash and
-  time.
+- A report run stores Quarto's executed markdown beside the HTML, from the
+  same execution.
+- `GET /-/api/v1/pages/{path}/runs/{id}` returns it. Usage is in
+  `docs/API.md`.
 - The existing GFM export does not serve: it runs with `--no-execute`.
 
-### 3. Provenance
+### 3. Provenance (implemented, without the table)
 
 - The analysis is a separate `.md` page under the agent prefix. It can span
   several months.
-- Frontmatter `sources:` is a list of `{page, render}`: each report page and
-  the hash of the frozen record the agent read.
-- Table `page_sources(pagepath, source, render_hash)`, filled on index.
-- An analysis is out of date when its report has a newer render with a
-  different hash.
+- Frontmatter `sources:` is a list of `{page, run}`: each report page and
+  the ID of the report run the agent read. Runs never change, so the ID
+  identifies the figures.
+- An analysis is out of date when a report it cites has a newer run for the
+  same period. The page view and the page API show this per source.
+- The state is resolved from the page's own frontmatter when it is read.
+  A `page_sources` table is needed only for lookups across pages, such as
+  lint or "which analyses cite this run". It is deferred to lint.
+- Not built: stage 2 `{query, hash}` entries.
 
-### 4. Validation
+### 4. Validation (implemented)
 
-Validation binds to a git revision. Any later commit voids it.
+Validation binds to a git revision. Any later commit voids it, human commits
+included.
 
-- Table `page_validations(pagepath, revision, validated_by, validated_at)`.
-- A page is validated when its newest row matches its current revision.
+- An agent page is a page an API token has written, recorded in
+  `agent_pages` on the first token write. The mark is permanent: revoking the
+  token or changing its prefix does not end the need for validation. Renaming
+  the page drops the mark.
+- Table `page_validations(filename, revision, validated_by, validated_at)`.
+  A page is validated when a row matches its current revision.
 - Only a session-authenticated user with the reviewer permission can
-  validate. A token request cannot.
-- Readers see an unvalidated page under the agent prefix, with a banner.
-- A setting hides unvalidated agent pages from users without the reviewer
-  permission. The hide must cover the page view, search, page index, feeds,
-  sitemap, backlinks and the API.
+  validate, from the page view. The form carries the revision shown; a
+  mismatch validates nothing. A token request cannot validate.
+- Readers see an agent page with a banner: unvalidated, or validated by whom
+  and when.
+- `HIDE_UNVALIDATED=true` hides unvalidated agent pages from everyone except
+  reviewers and API tokens. A hidden page answers 404 on every page action,
+  its attachments included. It is left out of search, the page index, the
+  sidebar, backlinks, the sitemap and the API. Commits that touch it are left
+  out of the changelog and feeds, and their commit view answers 404.
+- Cost: while hiding is active, each listing reads the current revision of
+  every agent page, and the changelog walks each hidden page's history.
 
 The state lives in the database, not in frontmatter. The agent writes page
 content, so it could write a frontmatter flag itself.
 
-### 5. Lint
+### 5. Lint (implemented)
 
-`GET /-/api/v1/lint` and a page at `/-/lint`. SQL only, no LLM.
+`GET /-/api/v1/lint` and a page at `/-/lint`. Deterministic; no model call.
 
-- Wikilinks whose target page does not exist.
-- Pages with no inbound link.
-- Agent-prefix pages with no `sources`, or with an out-of-date source.
-- Agent-prefix pages that are unvalidated.
-- Numbers in an analysis that do not occur in the executed report it cites.
+- `broken_link`: a wikilink whose target page does not exist.
+- `orphan`: no other page links here. The home page is exempt.
+- `unvalidated`: an agent page whose current revision is not validated.
+- `no_sources`, `missing_source`, `stale_source`: an agent prose page that
+  cites no run, cites a run that does not exist, or cites a run superseded by
+  a later run of the same period.
+- `unmatched_number`: a number in an agent prose page that occurs in none of
+  the cited runs' executed markdown, nor in their periods. Numbers compare by
+  value, so `4,500,000` matches `4500000`. A derived figure, or `4.5M` for
+  `4500000`, is reported; the finding asks the validator to check it.
+- Agent `.qmd` pages are checked for validation only.
+- Findings on pages hidden from the request are left out.
+- The `page_sources` table was not needed: the provenance checks cover agent
+  pages only, and lint reads their frontmatter directly.
 
-### 6. Batch save
+### 6. Batch save (implemented)
 
 One agent run can touch several pages. One commit for the run makes it one
-revert. `Storage.Commit` already takes a list of filenames.
+revert. `POST /-/api/v1/batch` saves up to 100 pages in one commit. Every
+page is checked first, under the same token rules as a single save; one
+failing page fails the batch and nothing is written. `Storage.Commit` was not
+reused: it commits files written earlier, outside the storage lock. The new
+`StoreFiles` writes and commits under one lock and restores the files if the
+commit fails.
 
 ### 7. MCP adapter and guide page
 
@@ -150,14 +180,13 @@ Independent of the agent.
   requirement on; instances without it keep today's behaviour.
 - Not yet built: the approval view shows the full source only, not the diff
   from the last approved hash.
-- Period parameter. The period is a render parameter, outside the hash, so one
-  approval covers every month. The server accepts only a `YYYY-MM` value.
-- Frozen record. A run is keyed by `(source hash, period)` and stored
-  permanently with its HTML, executed markdown and run time. The render store
-  today is a cache with `Clear` and eviction functions, and its key has no
-  period.
-- Re-run. Running a period again creates a new record and keeps the old one.
-  The ERP may have restated the data.
+- Report runs (implemented; see `docs/computational-pages.md` section 5.1.1).
+  The period is a render parameter outside the hash, so one approval covers
+  every month. The server accepts only a `YYYY-MM` value. A run is stored
+  permanently in the primary database with its HTML, executed markdown, source
+  hash and run time. Running a period again adds a run and keeps the old one.
+- Data freshness still applies to renders without a period: the render cache
+  key covers source, engine and environment, not data.
 
 ## Agent-proposed reports
 

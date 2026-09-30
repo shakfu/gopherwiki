@@ -26,6 +26,8 @@ A token request acts as the token's user and needs no CSRF token. It is limited 
 
 An unknown or revoked token returns `401`.
 
+A page written with a token becomes an agent page. It needs validation by a reviewer, and with `HIDE_UNVALIDATED=true` it answers `404` to other users until its current revision is validated. Tokens always see agent pages. See `docs/dev/llm-wiki.md`.
+
 ---
 
 ## Pages
@@ -82,6 +84,20 @@ Supports `ETag` / `If-None-Match` for cache validation (returns `304` when uncha
 }
 ```
 
+**Cited report runs.** A page can cite report runs in its frontmatter:
+
+```yaml
+sources:
+  - page: reports/sales
+    run: 12
+```
+
+The response then has a `sources` list with each run's state: `period` is empty when the run does not exist, and `newer_run` is set when a later run of the same period exists. Entries of other shapes are ignored.
+
+```json
+"sources": [{"page": "reports/sales", "run": 12, "period": "2026-08", "newer_run": 15}]
+```
+
 ### Create or update a page
 
 ```text
@@ -113,6 +129,32 @@ PUT /-/api/v1/pages/{path}
 - `409 Conflict` -- page was modified since the given `revision`
 
 A path ending in `.qmd`, such as `reports/august.qmd`, creates a computational page. Later requests may omit the suffix. The suffix is ignored when a page already exists at that path.
+
+### Save several pages in one commit
+
+```text
+POST /-/api/v1/batch
+```
+
+```json
+{
+  "message": "August run",
+  "pages": [
+    {"path": "kb/august", "content": "# August\n..."},
+    {"path": "kb/index", "content": "...", "revision": "a1b2c3"}
+  ]
+}
+```
+
+Saves up to 100 pages as one commit, so one revert undoes them all. Each page follows the rules of a single save, including the token rules. Every page is checked before anything is written; if one fails, nothing is saved.
+
+**Responses**
+
+- `200 OK` -- `{"changed": true, "pages": [...]}`; `changed` is false and no commit is made when no content changed
+
+- `400 Bad Request` -- empty batch, more than 100 pages, a missing path, or the same page twice
+
+- `409 Conflict` -- a page was modified since its `revision`; the error names the page
 
 ### Delete a page
 
@@ -165,6 +207,33 @@ Returns pages that link to the given page via `[[wikilinks]]`.
 
 ---
 
+### List report runs
+
+```text
+GET /-/api/v1/pages/{path}/runs
+```
+
+Returns the page's report runs, newest first. See `docs/computational-pages.md` section 5.1.1.
+
+**Response** `200 OK`
+
+```json
+{"data": [
+  {"id": 12, "period": "2026-08", "source_hash": "9f2c...", "source_revision": "a1b2c3d4...",
+   "run_by": "alice@example.com", "run_at": "2026-09-02T08:15:00Z"}
+]}
+```
+
+### Get a report run
+
+```text
+GET /-/api/v1/pages/{path}/runs/{id}
+```
+
+Returns one run with `markdown`, the executed page: the source with each cell's output in place. Returns `404` when the page has no run with that ID.
+
+---
+
 ## Search
 
 ### Search pages
@@ -188,6 +257,26 @@ Uses FTS5 full-text search with fallback to brute-force regex matching.
     }
   ]
 }
+```
+
+---
+
+## Lint
+
+### Get lint findings
+
+```text
+GET /-/api/v1/lint
+```
+
+Returns deterministic findings, sorted by page: `broken_link`, `orphan`, and for agent pages `unvalidated`, `no_sources`, `missing_source`, `stale_source` and `unmatched_number`. See `docs/dev/llm-wiki.md`. The same list is shown at `/-/lint`.
+
+**Response** `200 OK`
+
+```json
+{"data": [
+  {"page": "kb/august", "check": "unmatched_number", "detail": "not found in any cited run: 12.5"}
+]}
 ```
 
 ---
