@@ -502,7 +502,7 @@ func (ws *WikiService) DeletePage(ctx context.Context, pagepath, message string,
 	return nil
 }
 
-// Diff returns the diff between two revisions.
-func (ws *WikiService) Diff(ctx context.Context, revA, revB string) (string, error) {
-	return ws.store.Diff(revA, revB)
+// Diff returns the diff of one page file between two revisions.
+func (ws *WikiService) Diff(ctx context.Context, filename, revA, revB string) (string, error) {
+	return ws.store.Diff(filename, revA, revB)
 }

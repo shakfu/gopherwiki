@@ -529,7 +529,7 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	diff, err := s.Wiki.Diff(r.Context(), revA, revB)
+	diff, err := s.Wiki.Diff(r.Context(), page.Filename, revA, revB)
 	if err != nil {
 		s.renderError(w, r, http.StatusInternalServerError, err.Error())
 		return

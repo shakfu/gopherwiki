@@ -411,3 +411,18 @@ func TestGuessMimetypeQuarto(t *testing.T) {
 		t.Errorf("GuessMimetype(analysis.qmd) = %q, want %q", got, "text/markdown")
 	}
 }
+
+func TestValidPagepath(t *testing.T) {
+	valid := []string{"home", "kb/august", "kb/august.qmd", "/kb/august/", " kb "}
+	invalid := []string{"", "/", "..", "kb/..", "zz/../kb", "./kb", "kb/./x", "kb//x"}
+	for _, p := range valid {
+		if !ValidPagepath(p) {
+			t.Errorf("ValidPagepath(%q) = false, want true", p)
+		}
+	}
+	for _, p := range invalid {
+		if ValidPagepath(p) {
+			t.Errorf("ValidPagepath(%q) = true, want false", p)
+		}
+	}
+}

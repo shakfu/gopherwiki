@@ -52,6 +52,10 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 
 ### Security
 
+- **Page paths with `..`**: An API token could write a page through a path such as `x/../kb/page`. The prefix check cleaned the path but storage and the git status lookup did not, so the write was never committed, skipped the revision check, and was not marked for validation. Storage now refuses non-canonical names, and the API answers 400 for a path with an empty, `.` or `..` segment.
+
+- **Hidden pages in diffs and the API**: With `HIDE_UNVALIDATED=true`, `/<page>/diff` showed every file changed between two revisions, including hidden agent pages; it now shows only the page's own file. The page API checked hiding on the path before a `/runs/` segment, so a hidden page such as `kb/runs/notes` was served; it now checks the page the handler loads. See `docs/dev/security.md`.
+
 - **Export is opt-in**: Quarto-produced export requires the explicit `EXPORT_ENABLED` setting; merely having Quarto on the host does not expose export endpoints or run detection at startup. Markdown ZIP remains available regardless.
 
 - **Computational render isolation**: Rendered `.qmd` output is served in a sandboxed iframe under a relaxed Content-Security-Policy scoped to that document only, while the surrounding wiki keeps the strict policy. Render subprocesses run with a minimal environment that excludes application secrets, plus wall-clock and concurrency limits. Interactive output (Observable JS) additionally requires `allow-same-origin` on the iframe and access to the Observable CDNs; this and the whole feature assume a trusted editing team (no untrusted-author sandboxing) as documented in `docs/computational-pages.md`.

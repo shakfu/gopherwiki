@@ -3,6 +3,7 @@ package wiki
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/sa/gopherwiki/internal/config"
@@ -211,17 +212,21 @@ func TestWikiServiceDiff(t *testing.T) {
 	ws, cleanup := setupTestService(t)
 	defer cleanup()
 
-	log, err := ws.Changelog(context.Background(),10)
-	if err != nil || len(log) < 2 {
-		t.Fatal("Need at least 2 commits for diff test")
+	log, err := ws.Changelog(context.Background(), 10)
+	if err != nil || len(log) < 3 {
+		t.Fatal("Need at least 3 commits for diff test")
 	}
 
-	diff, err := ws.Diff(context.Background(),log[1].Revision, log[0].Revision)
+	// Between these revisions both guide.md and .hidden.md were added.
+	diff, err := ws.Diff(context.Background(), "guide.md", log[2].Revision, log[0].Revision)
 	if err != nil {
 		t.Fatalf("Diff returned error: %v", err)
 	}
-	if diff == "" {
-		t.Error("Expected non-empty diff")
+	if !strings.Contains(diff, "User Guide") {
+		t.Errorf("Expected the diff of guide.md, got %q", diff)
+	}
+	if strings.Contains(diff, "Hidden") {
+		t.Errorf("Diff of guide.md includes another file: %q", diff)
 	}
 }
 

@@ -91,8 +91,8 @@ type Storage interface {
 	// Blame returns blame information for a file.
 	Blame(filename string, revision string) ([]BlameLine, error)
 
-	// Diff returns the diff between two revisions.
-	Diff(revA, revB string) (string, error)
+	// Diff returns the diff of one file between two revisions.
+	Diff(filename, revA, revB string) (string, error)
 
 	// ShowCommit returns metadata and diff for a specific commit.
 	ShowCommit(revision string) (*CommitMetadata, string, error)

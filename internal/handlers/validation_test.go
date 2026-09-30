@@ -212,3 +212,49 @@ func TestHideUnvalidated_TreeKeepsVisibleSubpages(t *testing.T) {
 		t.Error("the hidden page itself should not be linked from the sidebar")
 	}
 }
+
+// TestHideUnvalidated_Diff checks that the diff of a visible page leaves out a
+// hidden agent page changed between the same revisions. The diff used to
+// cover the whole tree.
+func TestHideUnvalidated_Diff(t *testing.T) {
+	env := testutil.SetupTestEnv(t)
+	env.Server.Config.HideUnvalidated = true
+	token := createAPIToken(t, env, false)
+	env.Server.Wiki.SavePage(context.Background(), "Home", "# Home\n", "", "", author)
+	w := tokenRequest(t, env, "PUT", "/-/api/v1/pages/kb/august", `{"content":"# August\n\nRevenue rose zebra.\n"}`, token)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("agent write: status = %d; body: %s", w.Code, w.Body.String())
+	}
+	env.Server.Wiki.SavePage(context.Background(), "Home", "# Home\n\nEdited.\n", "", "", author)
+
+	w = getWith(env, "/home/diff?rev_a=HEAD~2&rev_b=HEAD", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("diff: status = %d", w.Code)
+	}
+	if body := w.Body.String(); !strings.Contains(body, "Edited.") || strings.Contains(body, "zebra") {
+		t.Errorf("diff of home must show home's change and not the hidden page; body contains Edited=%v zebra=%v",
+			strings.Contains(body, "Edited."), strings.Contains(body, "zebra"))
+	}
+}
+
+// TestHideUnvalidated_RunsSegment checks that a hidden page whose path holds a
+// "/runs/" segment stays hidden in the API. The hidden check used to run on
+// the path before that segment.
+func TestHideUnvalidated_RunsSegment(t *testing.T) {
+	env := testutil.SetupTestEnv(t)
+	env.Server.Config.HideUnvalidated = true
+	token := createAPIToken(t, env, false)
+	w := tokenRequest(t, env, "PUT", "/-/api/v1/pages/kb/runs/notes", `{"content":"# Notes\n\nsecret zebra\n"}`, token)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("agent write: status = %d; body: %s", w.Code, w.Body.String())
+	}
+
+	for _, path := range []string{"kb/runs/notes", "kb/runs/notes/history", "kb/runs/notes/backlinks"} {
+		if w := getWith(env, "/-/api/v1/pages/"+path, nil); w.Code != http.StatusNotFound {
+			t.Errorf("anonymous GET %s: status = %d, want 404; body: %s", path, w.Code, w.Body.String())
+		}
+	}
+	if w := tokenRequest(t, env, "GET", "/-/api/v1/pages/kb/runs/notes", "", token); w.Code != http.StatusOK {
+		t.Errorf("token GET kb/runs/notes: status = %d, want 200", w.Code)
+	}
+}

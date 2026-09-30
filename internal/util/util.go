@@ -127,6 +127,21 @@ func SanitizePagename(name string, handleMD bool) string {
 	return name
 }
 
+// ValidPagepath reports whether a page path has no empty, "." or ".." segment.
+// Such a path names a file whose raw and cleaned forms differ.
+func ValidPagepath(pagepath string) bool {
+	pagepath = SanitizePagename(pagepath, false)
+	if pagepath == "" {
+		return false
+	}
+	for _, seg := range strings.Split(pagepath, "/") {
+		if seg == "" || seg == "." || seg == ".." {
+			return false
+		}
+	}
+	return true
+}
+
 // GetPagename extracts the page name from a path.
 func GetPagename(pagepath string, full bool) string {
 	if pagepath == "" {

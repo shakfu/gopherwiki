@@ -64,7 +64,7 @@ func TestAPIToken_WriteOutsidePrefix(t *testing.T) {
 	env := testutil.SetupTestEnv(t)
 	token := createAPIToken(t, env, false)
 
-	for _, path := range []string{"home", "kbx/page", "kb/../home", "other/kb/page"} {
+	for _, path := range []string{"home", "kbx/page", "other/kb/page"} {
 		w := tokenRequest(t, env, "PUT", "/-/api/v1/pages/"+path, `{"content":"x"}`, token)
 		if w.Code != http.StatusForbidden {
 			t.Errorf("PUT %s: status = %d, want 403; body: %s", path, w.Code, w.Body.String())
@@ -247,5 +247,39 @@ func TestAdminTokens_RequiresAdmin(t *testing.T) {
 	env.Router.ServeHTTP(w, req)
 	if w.Code != http.StatusForbidden {
 		t.Errorf("status = %d, want 403", w.Code)
+	}
+}
+
+// TestAPIToken_NonCanonicalPath checks that a path with an empty, "." or ".."
+// segment is refused, inside the prefix as well as outside it. Such a path was
+// written without a commit, without the agent mark and without the revision
+// check.
+func TestAPIToken_NonCanonicalPath(t *testing.T) {
+	env := testutil.SetupTestEnv(t)
+	token := createAPIToken(t, env, false)
+	env.Store.Store("kb/august.md", "reviewed", "init", author)
+	before := commitCount(t, env)
+
+	for _, path := range []string{"kb/../home", "zz/../kb/august", "zz/../kb/new", "kb/./new", "kb//new"} {
+		w := tokenRequest(t, env, "PUT", "/-/api/v1/pages/"+path, `{"content":"EVIL","revision":"x"}`, token)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("PUT %s: status = %d, want 400; body: %s", path, w.Code, w.Body.String())
+		}
+		body := fmt.Sprintf(`{"pages":[{"path":%q,"content":"EVIL","revision":"x"}]}`, path)
+		if w := tokenRequest(t, env, "POST", "/-/api/v1/batch", body, token); w.Code != http.StatusBadRequest {
+			t.Errorf("batch %s: status = %d, want 400; body: %s", path, w.Code, w.Body.String())
+		}
+	}
+
+	if content, _ := env.Store.Load("kb/august.md", ""); content != "reviewed" {
+		t.Errorf("kb/august content = %q, want it unchanged", content)
+	}
+	for _, f := range []string{"home.md", "kb/new.md"} {
+		if env.Store.Exists(f) {
+			t.Errorf("%s was created by a rejected write", f)
+		}
+	}
+	if after := commitCount(t, env); after != before {
+		t.Errorf("commit count = %d, want %d", after, before)
 	}
 }

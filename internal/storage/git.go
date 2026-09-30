@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -65,10 +66,16 @@ func (g *GitStorage) Path() string {
 	return g.path
 }
 
-// validatePath checks that the given path does not escape the repository root.
+// validatePath checks that the given path is canonical and does not escape
+// the repository root.
 func (g *GitStorage) validatePath(filename string) error {
 	if filename == "" {
 		return nil
+	}
+	// A non-canonical name such as "a/../b" is written at its clean path but
+	// looked up in the git status by its raw name, so it is never committed.
+	if path.Clean(filename) != filename {
+		return ErrPathTraversal
 	}
 	cleaned := filepath.Clean(filename)
 	if filepath.IsAbs(cleaned) {
@@ -676,8 +683,12 @@ func (g *GitStorage) Blame(filename string, revision string) ([]BlameLine, error
 	return lines, nil
 }
 
-// Diff returns the diff between two revisions.
-func (g *GitStorage) Diff(revA, revB string) (string, error) {
+// Diff returns the diff of one file between two revisions. Other files are
+// left out: the page diff view must not show pages the reader cannot see.
+func (g *GitStorage) Diff(filename, revA, revB string) (string, error) {
+	if err := g.validatePath(filename); err != nil {
+		return "", err
+	}
 	g.rLockWithReload()
 	defer g.mu.RUnlock()
 	hashA, err := g.repo.ResolveRevision(plumbing.Revision(revA))
@@ -714,8 +725,14 @@ func (g *GitStorage) Diff(revA, revB string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	var fileChanges object.Changes
+	for _, c := range changes {
+		if c.From.Name == filename || c.To.Name == filename {
+			fileChanges = append(fileChanges, c)
+		}
+	}
 
-	patch, err := changes.Patch()
+	patch, err := fileChanges.Patch()
 	if err != nil {
 		return "", err
 	}

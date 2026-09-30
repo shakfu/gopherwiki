@@ -175,7 +175,7 @@ Saves up to 100 pages as one commit, so one revert undoes them all. Each page fo
 
 - `200 OK` -- `{"changed": true, "pages": [...]}`; `changed` is false and no commit is made when no content changed
 
-- `400 Bad Request` -- empty batch, more than 100 pages, a missing path, or the same page twice
+- `400 Bad Request` -- empty batch, more than 100 pages, a missing or invalid path, or the same page twice
 
 - `409 Conflict` -- a page was modified since its `revision`; the error names the page
 
@@ -493,7 +493,7 @@ All errors return the appropriate HTTP status code with a JSON body:
 
 | Status | Meaning                                    |
 |--------|--------------------------------------------|
-| 400    | Bad request (invalid input)                |
+| 400    | Bad request (invalid input, or a page path with an empty, `.` or `..` segment) |
 | 401    | Not authenticated                          |
 | 403    | Forbidden (insufficient permissions)       |
 | 404    | Resource not found                         |

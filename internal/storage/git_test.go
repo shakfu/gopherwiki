@@ -489,3 +489,26 @@ func TestStoreUnchangedContent(t *testing.T) {
 		t.Errorf("second Store = %v, %v; want false, nil", changed, err)
 	}
 }
+
+// TestNonCanonicalPathRejected checks that a name whose raw and cleaned forms
+// differ is refused. Such a name was written at its clean path but never
+// committed, because the git status lookup used the raw name.
+func TestNonCanonicalPathRejected(t *testing.T) {
+	gs, err := NewGitStorage(t.TempDir(), true)
+	if err != nil {
+		t.Fatalf("Failed to create GitStorage: %v", err)
+	}
+	author := Author{Name: "Test User", Email: "test@example.com"}
+
+	for _, p := range []string{"zz/../kb/page.md", "./kb/page.md", "kb//page.md", "kb/./page.md"} {
+		if _, err := gs.Store(p, "x", "bad", author); !errors.Is(err, ErrPathTraversal) {
+			t.Errorf("Store(%q) = %v, want ErrPathTraversal", p, err)
+		}
+		if _, err := gs.StoreFiles(map[string][]byte{p: []byte("x")}, "bad", author); !errors.Is(err, ErrPathTraversal) {
+			t.Errorf("StoreFiles(%q) = %v, want ErrPathTraversal", p, err)
+		}
+	}
+	if gs.Exists("kb/page.md") {
+		t.Error("a rejected write must not create the file")
+	}
+}

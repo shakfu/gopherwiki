@@ -2,6 +2,14 @@
 
 ## Critical
 
+Security findings on the `mcp` branch, fixed before merging to `main`. Details: `docs/dev/security.md`.
+
+- [x] `..` in an API page path writes without a commit, agent mark or revision check (High)
+
+- [x] `/<page>/diff` shows hidden agent pages from the whole tree (Medium)
+
+- [x] JSON API serves hidden pages whose path contains `/runs/` (Medium)
+
 ## High
 
 - [ ] Implement email sending for password recovery and notifications

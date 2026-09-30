@@ -47,50 +47,50 @@ func (s *Server) handleAPIPage(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "page path required")
 		return
 	}
+	if !util.ValidPagepath(pagePath) {
+		writeJSONError(w, http.StatusBadRequest, "invalid page path")
+		return
+	}
 
-	// Dispatch sub-resources by suffix
+	// Resolve the sub-resource first, so the hidden check below covers the
+	// page the handler loads. A "/runs/" segment is a run only with an ID.
 	target := pagePath
-	for _, suffix := range []string{"/history", "/backlinks", "/runs"} {
-		target = strings.TrimSuffix(target, suffix)
+	serve := func(page string) {
+		switch r.Method {
+		case http.MethodGet:
+			s.handleAPIPageGet(w, r, page)
+		case http.MethodPut:
+			s.handleAPIPageSave(w, r, page)
+		case http.MethodDelete:
+			s.handleAPIPageDelete(w, r, page)
+		default:
+			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
 	}
-	if i := strings.LastIndex(target, "/runs/"); i > 0 {
-		target = target[:i]
+	switch {
+	case strings.HasSuffix(pagePath, "/history"):
+		target = strings.TrimSuffix(pagePath, "/history")
+		serve = func(page string) { s.handleAPIPageHistory(w, r, page) }
+	case strings.HasSuffix(pagePath, "/backlinks"):
+		target = strings.TrimSuffix(pagePath, "/backlinks")
+		serve = func(page string) { s.handleAPIPageBacklinks(w, r, page) }
+	case strings.HasSuffix(pagePath, "/runs"):
+		target = strings.TrimSuffix(pagePath, "/runs")
+		serve = func(page string) { s.handleAPIPageRuns(w, r, page) }
+	default:
+		if i := strings.LastIndex(pagePath, "/runs/"); i > 0 {
+			if id, err := strconv.ParseInt(pagePath[i+len("/runs/"):], 10, 64); err == nil {
+				target = pagePath[:i]
+				serve = func(page string) { s.handleAPIPageRun(w, r, page, id) }
+			}
+		}
 	}
+
 	if hidden, err := s.pageHidden(r, target, false); err != nil || hidden {
 		writeJSONError(w, http.StatusNotFound, "page not found")
 		return
 	}
-
-	switch {
-	case strings.HasSuffix(pagePath, "/history"):
-		pagePath = strings.TrimSuffix(pagePath, "/history")
-		s.handleAPIPageHistory(w, r, pagePath)
-		return
-	case strings.HasSuffix(pagePath, "/backlinks"):
-		pagePath = strings.TrimSuffix(pagePath, "/backlinks")
-		s.handleAPIPageBacklinks(w, r, pagePath)
-		return
-	case strings.HasSuffix(pagePath, "/runs"):
-		s.handleAPIPageRuns(w, r, strings.TrimSuffix(pagePath, "/runs"))
-		return
-	}
-	if i := strings.LastIndex(pagePath, "/runs/"); i > 0 {
-		if id, err := strconv.ParseInt(pagePath[i+len("/runs/"):], 10, 64); err == nil {
-			s.handleAPIPageRun(w, r, pagePath[:i], id)
-			return
-		}
-	}
-
-	switch r.Method {
-	case http.MethodGet:
-		s.handleAPIPageGet(w, r, pagePath)
-	case http.MethodPut:
-		s.handleAPIPageSave(w, r, pagePath)
-	case http.MethodDelete:
-		s.handleAPIPageDelete(w, r, pagePath)
-	default:
-		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-	}
+	serve(target)
 }
 
 // handleAPIPageGet handles GET /api/v1/pages/{path} -- get page content.
@@ -228,6 +228,10 @@ func (s *Server) handleAPIBatchSave(w http.ResponseWriter, r *http.Request) {
 	for _, p := range input.Pages {
 		if p.Path == "" {
 			writeJSONError(w, http.StatusBadRequest, "page path required")
+			return
+		}
+		if !util.ValidPagepath(p.Path) {
+			writeJSONError(w, http.StatusBadRequest, "invalid page path: "+p.Path)
 			return
 		}
 		if hidden, err := s.pageHidden(r, p.Path, false); err != nil || hidden {
