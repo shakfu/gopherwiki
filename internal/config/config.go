@@ -100,6 +100,7 @@ type Config struct {
 	RenderCachePath   string // Render cache DB path ("" derives a sibling of the primary DB)
 	RenderPython      string // Pin the Python interpreter for renders (-> QUARTO_PYTHON); "" = discover
 	RenderR           string // Pin the R interpreter for renders (-> QUARTO_R); "" = discover
+	RenderApproval    bool   // Require a reviewer to approve a .qmd page's source before it may render
 	OJSLibsDir        string // Local mirror of the Observable JS libraries; when set, OJS pages load libs from the wiki (offline) instead of the CDNs
 }
 
@@ -309,6 +310,7 @@ func (c *Config) LoadFromEnv() {
 	c.RenderCachePath = getEnv("RENDER_CACHE_PATH", c.RenderCachePath)
 	c.RenderPython = getEnv("RENDER_PYTHON", c.RenderPython)
 	c.RenderR = getEnv("RENDER_R", c.RenderR)
+	c.RenderApproval = getEnvBool("RENDER_APPROVAL_REQUIRED", c.RenderApproval)
 	c.OJSLibsDir = getEnv("OJS_LIBS_DIR", c.OJSLibsDir)
 }
 

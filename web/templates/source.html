@@ -13,5 +13,34 @@
 
 <h1>{{.pagename}} - Source</h1>
 
+{{if .flashes}}
+{{range .flashes}}
+<div class="alert alert-{{if .Category}}{{.Category}}{{else}}info{{end}}" role="alert">
+    {{if .Message}}{{.Message}}{{else}}{{.}}{{end}}
+</div>
+{{end}}
+{{end}}
+
+{{with .computational}}
+{{if and .approval_required (not .approved)}}
+<div class="alert alert-secondary" role="status">
+    <p>This source is not approved. It cannot render until a reviewer approves it. Any edit needs a new approval.</p>
+    {{if $.permissions.review}}
+    <form action="/{{$.pagepath}}/approve" method="post">
+{{template "csrfField" $.csrf_token}}
+        <input type="hidden" name="hash" value="{{.hash}}">
+        <button type="submit" class="btn btn-primary">Approve this source</button>
+    </form>
+    {{end}}
+</div>
+{{else if and .can_render $.permissions.write}}
+<form action="/{{$.pagepath}}/render" method="post" class="mb-20">
+{{template "csrfField" $.csrf_token}}
+    <button type="submit" class="btn btn-primary">Render</button>
+    {{if .approval_required}}<small class="text-muted">This source is approved.</small>{{end}}
+</form>
+{{end}}
+{{end}}
+
 <pre><code>{{.source}}</code></pre>
 {{end}}

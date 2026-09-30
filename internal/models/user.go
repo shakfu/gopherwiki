@@ -111,6 +111,14 @@ func (u *User) CanUpload() bool {
 	return u.AllowUpload.Valid && u.AllowUpload.Bool
 }
 
+// CanReview returns true if the user has review permission.
+func (u *User) CanReview() bool {
+	if u.IsAnonymous() {
+		return false
+	}
+	return u.AllowReview.Valid && u.AllowReview.Bool
+}
+
 // GetFirstSeen returns when the user was first seen.
 func (u *User) GetFirstSeen() time.Time {
 	if u.IsAnonymous() || !u.FirstSeen.Valid {
@@ -143,6 +151,7 @@ type CreateUserParams struct {
 	AllowRead      bool
 	AllowWrite     bool
 	AllowUpload    bool
+	AllowReview    bool
 }
 
 // ToDBParams converts CreateUserParams to db.CreateUserParams.
@@ -160,6 +169,7 @@ func (p *CreateUserParams) ToDBParams() db.CreateUserParams {
 		AllowRead:      db.NullBool(p.AllowRead),
 		AllowWrite:     db.NullBool(p.AllowWrite),
 		AllowUpload:    db.NullBool(p.AllowUpload),
+		AllowReview:    db.NullBool(p.AllowReview),
 	}
 }
 
@@ -175,6 +185,7 @@ type UpdateUserParams struct {
 	AllowRead      bool
 	AllowWrite     bool
 	AllowUpload    bool
+	AllowReview    bool
 }
 
 // ToDBParams converts UpdateUserParams to db.UpdateUserParams.
@@ -191,5 +202,6 @@ func (p *UpdateUserParams) ToDBParams() db.UpdateUserParams {
 		AllowRead:      db.NullBool(p.AllowRead),
 		AllowWrite:     db.NullBool(p.AllowWrite),
 		AllowUpload:    db.NullBool(p.AllowUpload),
+		AllowReview:    db.NullBool(p.AllowReview),
 	}
 }

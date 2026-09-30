@@ -25,8 +25,8 @@ SELECT * FROM user ORDER BY name;
 -- name: CreateUser :one
 INSERT INTO user (
     name, email, password_hash, first_seen, last_seen,
-    is_approved, is_admin, email_confirmed, allow_read, allow_write, allow_upload
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    is_approved, is_admin, email_confirmed, allow_read, allow_write, allow_upload, allow_review
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: UpdateUser :exec
@@ -40,7 +40,8 @@ UPDATE user SET
     email_confirmed = ?,
     allow_read = ?,
     allow_write = ?,
-    allow_upload = ?
+    allow_upload = ?,
+    allow_review = ?
 WHERE id = ?;
 
 -- name: UpdateUserLastSeen :exec

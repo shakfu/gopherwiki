@@ -53,9 +53,6 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 // handleView handles viewing a wiki page.
 func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 	path := chi.URLParam(r, "path")
-	if subpath := chi.URLParam(r, "subpath"); subpath != "" {
-		path = path + "/" + subpath
-	}
 	if path == "" {
 		s.handleIndex(w, r)
 		return
@@ -77,7 +74,8 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 		attachmentDir := util.GetAttachmentDirectoryname(parentFilename)
 		attachmentPath := attachmentDir + "/" + filename
 
-		if s.Storage.Exists(attachmentPath) {
+		// A page's own attachment directory has the same path; it is not a file.
+		if s.Storage.Exists(attachmentPath) && !s.Storage.IsDir(attachmentPath) {
 			s.serveAttachment(w, r, attachmentPath, filename)
 			return
 		}
@@ -275,6 +273,19 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 
 	data := NewPageViewData(page.Pagename+" - Source", page)
 	data["source"] = page.Content
+	if page.IsComputational {
+		approved, err := s.codeApproved(r, page)
+		if err != nil {
+			s.renderError(w, r, http.StatusInternalServerError, "Failed to check code approval")
+			return
+		}
+		data["computational"] = map[string]interface{}{
+			"hash":              codeHash(page.Content),
+			"approved":          approved,
+			"approval_required": s.Config.RenderApproval,
+			"can_render":        s.RenderService != nil && s.RenderService.Available(),
+		}
+	}
 	s.renderTemplate(w, r, "source.html", data)
 }
 

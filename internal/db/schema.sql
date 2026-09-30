@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS user (
     email_confirmed BOOLEAN DEFAULT FALSE,
     allow_read BOOLEAN DEFAULT FALSE,
     allow_write BOOLEAN DEFAULT FALSE,
-    allow_upload BOOLEAN DEFAULT FALSE
+    allow_upload BOOLEAN DEFAULT FALSE,
+    allow_review BOOLEAN DEFAULT FALSE
 );
 
 CREATE TABLE IF NOT EXISTS drafts (
@@ -72,6 +73,6 @@ CREATE TABLE IF NOT EXISTS issue_comments (
 
 CREATE INDEX IF NOT EXISTS idx_issue_comments_issue_id ON issue_comments(issue_id);
 
--- Additional tables (page_fts, page_links, schema_version) and column additions
+-- Additional tables (page_fts, page_links, api_tokens, code_approvals, schema_version) and column additions
 -- are managed by versioned migrations in database.go:runMigrations().
 -- FTS5 virtual tables cannot be in this file because sqlc cannot parse them.

@@ -42,9 +42,9 @@ type Page struct {
 
 // resolveFilename determines the source filename backing a page path. It prefers
 // an existing file, checking the recognized extensions (.md then .qmd) in
-// priority order, and falls back to the default extension for a page that does
-// not yet exist. Case is normalized unless RetainPageNameCase is set.
-func resolveFilename(store storage.Storage, cfg *config.Config, pagepath string) string {
+// priority order, and falls back to newExt for a page that does not yet exist.
+// Case is normalized unless RetainPageNameCase is set.
+func resolveFilename(store storage.Storage, cfg *config.Config, pagepath, newExt string) string {
 	normalize := func(name string) string {
 		if !cfg.RetainPageNameCase {
 			return strings.ToLower(name)
@@ -59,18 +59,24 @@ func resolveFilename(store storage.Storage, cfg *config.Config, pagepath string)
 		}
 	}
 
-	return normalize(util.GetFilename(pagepath))
+	return normalize(util.SanitizePagename(pagepath, true) + newExt)
 }
 
 // NewPage creates a new Page object.
 func NewPage(store storage.Storage, cfg *config.Config, pagepath string, revision string) (*Page, error) {
+	// An explicit .qmd suffix creates a computational page. It has no effect
+	// when a file already backs the page.
+	newExt := util.DefaultMarkdownExtension
+	if util.IsQuartoFile(util.SanitizePagename(pagepath, false)) {
+		newExt = util.QuartoExtension
+	}
 	pagepath = util.SanitizePagename(pagepath, true)
 	pagename := util.GetPagename(pagepath, false)
 	pagenameFull := util.GetPagename(pagepath, true)
 
 	// Resolve the backing file, which may be plain markdown (.md) or a Quarto
 	// computational page (.qmd).
-	filename := resolveFilename(store, cfg, pagepath)
+	filename := resolveFilename(store, cfg, pagepath, newExt)
 
 	p := &Page{
 		Pagepath:              pagepath,

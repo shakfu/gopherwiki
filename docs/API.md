@@ -7,7 +7,24 @@ All endpoints are under `/-/api/v1/`. Responses use a JSON envelope:
 {"error": "..."}  // on failure
 ```
 
-Authentication uses the same session cookies as the web UI. API requests that fail authentication receive JSON 401/403 responses instead of HTML redirects.
+Authentication uses the same session cookies as the web UI, or an API token. API requests that fail authentication receive JSON 401/403 responses instead of HTML redirects.
+
+## API tokens
+
+An admin creates and revokes tokens at `/-/admin/tokens`. The token is shown once. Send it as a bearer credential:
+
+```text
+Authorization: Bearer gw_...
+```
+
+A token request acts as the token's user and needs no CSRF token. It is limited in four ways:
+
+- It may create and update pages only at or below the token's write prefix. Other paths return `403`.
+- Updating an existing page requires `revision`. Without it the response is `428 Precondition Required`. Use `metadata.revision` from the page's `GET` response.
+- It may not delete pages.
+- It never has admin rights, and it is accepted only under `/-/api/`.
+
+An unknown or revoked token returns `401`.
 
 ---
 
@@ -94,6 +111,8 @@ PUT /-/api/v1/pages/{path}
 - `200 OK` -- existing page updated
 
 - `409 Conflict` -- page was modified since the given `revision`
+
+A path ending in `.qmd`, such as `reports/august.qmd`, creates a computational page. Later requests may omit the suffix. The suffix is ignored when a page already exists at that path.
 
 ### Delete a page
 

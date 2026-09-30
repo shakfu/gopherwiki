@@ -116,6 +116,7 @@ type UserOpts struct {
 	AllowRead             bool
 	AllowWrite            bool
 	AllowUpload           bool
+	AllowReview           bool
 }
 
 // CreateTestUser inserts a user into the DB and returns the models.User.
@@ -146,6 +147,7 @@ func CreateTestUser(t *testing.T, database *db.Database, opts UserOpts) *models.
 		AllowRead:      db.NullBool(opts.AllowRead),
 		AllowWrite:     db.NullBool(opts.AllowWrite),
 		AllowUpload:    db.NullBool(opts.AllowUpload),
+		AllowReview:    db.NullBool(opts.AllowReview),
 	}
 
 	dbUser, err := database.Queries.CreateUser(context.Background(), params)

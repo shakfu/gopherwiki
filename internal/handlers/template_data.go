@@ -37,10 +37,18 @@ func NewPageData(page *wiki.Page, htmlContent template.HTML,
 func NewEditorData(page *wiki.Page, content string, cursorLine, cursorCh int,
 	revision string, files []map[string]interface{}) map[string]interface{} {
 
+	// A new computational page must be saved under its .qmd path, or the save
+	// would create a .md file.
+	savePath := page.Pagepath
+	if !page.Exists && page.IsComputational {
+		savePath += util.QuartoExtension
+	}
+
 	return map[string]interface{}{
 		"templateType":   "editor",
 		"pagename":       page.Pagename,
 		"pagepath":       page.Pagepath,
+		"save_path":      savePath,
 		"content_editor": content,
 		"cursor_line":    cursorLine,
 		"cursor_ch":      cursorCh,

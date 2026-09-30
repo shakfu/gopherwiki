@@ -3,6 +3,7 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -80,6 +81,9 @@ func (s *Server) Routes() chi.Router {
 
 	// Session middleware (adds user to context)
 	r.Use(s.SessionManager.Middleware)
+
+	// Bearer-token authentication for the JSON API (replaces the session user).
+	r.Use(s.SessionManager.TokenAuth)
 
 	// CSRF protection on state-changing requests. Disabled under Testing so the
 	// existing handler tests need not perform the token dance; covered directly
@@ -159,6 +163,9 @@ func (s *Server) Routes() chi.Router {
 			r.Get("/admin/users/{id}", s.handleAdminUserEdit)
 			r.Post("/admin/users/{id}", s.handleAdminUserSave)
 			r.Post("/admin/users/{id}/delete", s.handleAdminUserDelete)
+			r.Get("/admin/tokens", s.handleAdminTokens)
+			r.Post("/admin/tokens", s.handleAdminTokenCreate)
+			r.Post("/admin/tokens/{id}/delete", s.handleAdminTokenDelete)
 			r.Get("/admin/settings", s.handleAdminSettings)
 			r.Post("/admin/settings", s.handleAdminSettingsSave)
 			r.Post("/admin/site-settings", s.handleAdminSiteSettingsSave)
@@ -208,49 +215,87 @@ func (s *Server) Routes() chi.Router {
 		r.Get("/", s.handleIndex)
 	})
 
-	// Wiki page routes
-	r.Route("/{path:.*}", func(r chi.Router) {
-		// Read-protected page routes
-		r.Group(func(r chi.Router) {
-			r.Use(s.PermissionChecker.RequireRead)
-			r.Get("/", s.handleView)
-			r.Get("/rendered", s.handleRendered)
-			r.Get("/export", s.handleExport)
-			r.Get("/history", s.handleHistory)
-			r.Get("/source", s.handleSource)
-			r.Get("/blame", s.handleBlame)
-			r.Get("/diff", s.handleDiff)
-			r.Get("/attachments", s.handleAttachments)
-			r.Get("/draft", s.handleDraftLoad)
-			// Catch-all for attachment files and nested page paths.
-			// Chi static routes above take priority over this parameterized route.
-			r.Get("/{subpath}", s.handleView)
-		})
-
-		// Write-protected page routes
-		r.Group(func(r chi.Router) {
-			r.Use(s.PermissionChecker.RequireWrite)
-			r.Get("/edit", s.handleEdit)
-			r.Post("/save", s.handleSave)
-			r.Get("/create", s.handleCreate)
-			r.Get("/delete", s.handleDeleteForm)
-			r.Post("/delete", s.handleDelete)
-			r.Get("/rename", s.handleRenameForm)
-			r.Post("/rename", s.handleRename)
-			r.Post("/preview", s.handlePreview)
-			r.Post("/draft", s.handleDraftSave)
-			r.Delete("/draft", s.handleDraftDelete)
-			r.Post("/render", s.handleRender)
-		})
-
-		// Upload-protected page routes
-		r.Group(func(r chi.Router) {
-			r.Use(s.PermissionChecker.RequireUpload)
-			r.Post("/attachments", s.handleUploadAttachment)
-		})
+	// Wiki page routes. A chi parameter cannot span "/", so a pattern such as
+	// "/{path}/edit" never matched a nested page like "docs/setup". A
+	// catch-all splits a known trailing action off the path instead.
+	actions := s.pageActions()
+	r.HandleFunc("/*", func(w http.ResponseWriter, r *http.Request) {
+		s.dispatchPage(w, r, actions)
 	})
 
 	return r
+}
+
+// pageAction is the handler for one action on a wiki page, wrapped in the
+// middleware that checks its permission.
+type pageAction struct {
+	require func(http.Handler) http.Handler
+	handler http.HandlerFunc
+}
+
+// pageActions maps "METHOD action" to its handler. The action is the last path
+// segment, as in "/docs/setup/edit".
+func (s *Server) pageActions() map[string]pageAction {
+	read := s.PermissionChecker.RequireRead
+	write := s.PermissionChecker.RequireWrite
+	return map[string]pageAction{
+		"GET rendered":     {read, s.handleRendered},
+		"GET export":       {read, s.handleExport},
+		"GET history":      {read, s.handleHistory},
+		"GET source":       {read, s.handleSource},
+		"GET blame":        {read, s.handleBlame},
+		"GET diff":         {read, s.handleDiff},
+		"GET attachments":  {read, s.handleAttachments},
+		"GET draft":        {read, s.handleDraftLoad},
+		"GET edit":         {write, s.handleEdit},
+		"POST save":        {write, s.handleSave},
+		"GET create":       {write, s.handleCreate},
+		"GET delete":       {write, s.handleDeleteForm},
+		"POST delete":      {write, s.handleDelete},
+		"GET rename":       {write, s.handleRenameForm},
+		"POST rename":      {write, s.handleRename},
+		"POST preview":     {write, s.handlePreview},
+		"POST draft":       {write, s.handleDraftSave},
+		"DELETE draft":     {write, s.handleDraftDelete},
+		"POST render":      {write, s.handleRender},
+		"POST approve":     {s.PermissionChecker.RequireReview, s.handleApprove},
+		"POST attachments": {s.PermissionChecker.RequireUpload, s.handleUploadAttachment},
+	}
+}
+
+// dispatchPage routes a request under a wiki page path. A GET whose last
+// segment is not an action views the page, or serves an attachment. The page
+// path is exposed to handlers as the "path" URL parameter.
+func (s *Server) dispatchPage(w http.ResponseWriter, r *http.Request, actions map[string]pageAction) {
+	path := chi.URLParam(r, "*")
+	route := pageAction{s.PermissionChecker.RequireRead, s.handleView}
+	found := r.Method == http.MethodGet
+
+	if i := strings.LastIndex(path, "/"); i > 0 {
+		action := path[i+1:]
+		if a, ok := actions[r.Method+" "+action]; ok {
+			route, found, path = a, true, path[:i]
+		} else if isPageAction(actions, action) {
+			found = false
+		}
+	}
+	if !found {
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
+
+	chi.RouteContext(r.Context()).URLParams.Add("path", path)
+	route.require(route.handler).ServeHTTP(w, r)
+}
+
+// isPageAction reports whether name is an action for any method.
+func isPageAction(actions map[string]pageAction, name string) bool {
+	for key := range actions {
+		if strings.HasSuffix(key, " "+name) {
+			return true
+		}
+	}
+	return false
 }
 
 // contentSecurityPolicy restricts where resources may be loaded from.

@@ -35,6 +35,7 @@
                 {{if .CanRead}}<span class="badge badge-info">Read</span>{{end}}
                 {{if .CanWrite}}<span class="badge badge-info">Write</span>{{end}}
                 {{if .CanUpload}}<span class="badge badge-info">Upload</span>{{end}}
+                {{if .CanReview}}<span class="badge badge-info">Review</span>{{end}}
             </td>
             <td>
                 <a href="/-/admin/users/{{.ID}}" class="btn btn-sm btn-primary">Edit</a>

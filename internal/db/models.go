@@ -66,4 +66,5 @@ type User struct {
 	AllowRead      sql.NullBool   `json:"allow_read"`
 	AllowWrite     sql.NullBool   `json:"allow_write"`
 	AllowUpload    sql.NullBool   `json:"allow_upload"`
+	AllowReview    sql.NullBool   `json:"allow_review"`
 }

@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 
 ### Added
 
+- **API tokens**: An admin can issue bearer tokens at `/-/admin/tokens` so a script or an external agent can use the JSON API without a browser session. A token writes pages only under its path prefix, must send the base `revision` to overwrite a page, cannot delete pages, and never has admin rights. Tokens are accepted only under `/-/api/`, so a token cannot trigger a computational render. See `docs/API.md` and `docs/dev/llm-wiki.md`.
+
+- **Code approval for computational pages**: With `RENDER_APPROVAL_REQUIRED=true`, a `.qmd` page renders only after a user with the new review permission approves the hash of its source; any edit needs a new approval. Without the setting, any editor can render, as before. The approval covers the whole source because prose can hold inline expressions and raw HTML. The source view now has Approve and Render buttons. See `docs/computational-pages.md` section 7.1.
+
+- **Creating computational pages**: A page path ending in `.qmd` creates a computational page, in the editor (`/reports/august.qmd/edit`) and through `PUT /-/api/v1/pages/reports/august.qmd`. Before, a `.qmd` page could only be added to the git repository directly.
+
 - **Computational pages (Quarto)**: Pages stored with a `.qmd` extension are rendered by Quarto and may contain executable Python (Jupyter) and R (knitr) code cells whose results embed into the page. Execution is gated behind an authenticated render action and never runs on a reader's page view; the rendered output is cached in a separate SQLite database and served inside an isolated iframe. The feature is optional and feature-detected via `COMPUTATIONAL_PAGES_ENABLED`; without Quarto installed, `.qmd` pages show a render-pending placeholder and the rest of the wiki is unaffected. The render interpreters can be pinned with `RENDER_PYTHON` / `RENDER_R`. See `docs/computational-pages.md`.
 
 - **Observable JS (OJS)**: `{ojs}` cells run client-side for interactive, reactive content (inputs, live-updating views, Plot/d3 charts). See the offline-libraries note under Security for air-gapped operation.
@@ -17,6 +23,10 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - **Frontmatter parsing**: Leading YAML frontmatter is parsed and its `title` is used for the page title and search index.
 
 ### Fixed
+
+- **Actions on nested pages**: Edit, save, source, history and every other page action returned 404 for a page below the top level, such as `docs/setup/edit`. A chi URL parameter cannot contain `/`, so `/{path}/edit` matched only single-segment paths; only viewing worked, through a separate catch-all. Page routes now split a known trailing action off the full path.
+
+- **Nested pages with attachments**: Viewing a nested page that had attachments returned 404, because its attachment directory was mistaken for an attachment file.
 
 - **Frontmatter-aware search**: The search index now prefers a frontmatter `title` and strips the YAML frontmatter block from the indexed content, so raw metadata is neither indexed nor matched by search.
 

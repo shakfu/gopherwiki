@@ -180,6 +180,7 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name str
 		"write":  s.PermissionChecker.HasPermission(r, middleware.PermissionWrite),
 		"upload": s.PermissionChecker.HasPermission(r, middleware.PermissionUpload),
 		"admin":  s.PermissionChecker.HasPermission(r, middleware.PermissionAdmin),
+		"review": s.PermissionChecker.HasPermission(r, middleware.PermissionReview),
 	}
 
 	// Add sidebar page tree when configured

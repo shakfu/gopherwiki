@@ -58,7 +58,8 @@ CREATE TABLE IF NOT EXISTS user (
     email_confirmed BOOLEAN DEFAULT FALSE,
     allow_read BOOLEAN DEFAULT FALSE,
     allow_write BOOLEAN DEFAULT FALSE,
-    allow_upload BOOLEAN DEFAULT FALSE
+    allow_upload BOOLEAN DEFAULT FALSE,
+    allow_review BOOLEAN DEFAULT FALSE
 );
 
 CREATE TABLE IF NOT EXISTS drafts (
@@ -238,6 +239,38 @@ var migrations = []migration{
 		}
 		_, err := conn.ExecContext(ctx,
 			`CREATE UNIQUE INDEX IF NOT EXISTS idx_drafts_page_author ON drafts(pagepath, author_email)`)
+		return err
+	}},
+	{7, "create api_tokens table", func(ctx context.Context, conn *sql.DB) error {
+		_, err := conn.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS api_tokens (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+			label TEXT NOT NULL,
+			token_hash TEXT NOT NULL UNIQUE,
+			write_prefix TEXT NOT NULL,
+			created_at TIMESTAMP NOT NULL,
+			last_used_at TIMESTAMP
+		)`)
+		return err
+	}},
+	{8, "add user allow_review column", func(ctx context.Context, conn *sql.DB) error {
+		var count int
+		if err := conn.QueryRowContext(ctx,
+			"SELECT COUNT(*) FROM pragma_table_info('user') WHERE name='allow_review'").Scan(&count); err != nil {
+			return err
+		}
+		if count == 0 {
+			_, err := conn.ExecContext(ctx, "ALTER TABLE user ADD COLUMN allow_review BOOLEAN DEFAULT FALSE")
+			return err
+		}
+		return nil
+	}},
+	{9, "create code_approvals table", func(ctx context.Context, conn *sql.DB) error {
+		_, err := conn.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS code_approvals (
+			hash TEXT PRIMARY KEY,
+			approved_by TEXT NOT NULL,
+			approved_at TIMESTAMP NOT NULL
+		)`)
 		return err
 	}},
 }

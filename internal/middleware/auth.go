@@ -15,6 +15,7 @@ const (
 	PermissionWrite  = "write"
 	PermissionUpload = "upload"
 	PermissionAdmin  = "admin"
+	PermissionReview = "review"
 )
 
 // PermissionChecker provides permission checking middleware.
@@ -75,6 +76,17 @@ func (pc *PermissionChecker) RequireAdmin(next http.Handler) http.Handler {
 	})
 }
 
+// RequireReview returns middleware that requires review permission.
+func (pc *PermissionChecker) RequireReview(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !pc.HasPermission(r, PermissionReview) {
+			pc.handleUnauthorized(w, r, PermissionReview)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // RequireAuth returns middleware that requires authentication.
 func (pc *PermissionChecker) RequireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -99,7 +111,11 @@ func (pc *PermissionChecker) HasPermission(r *http.Request, permission string) b
 	case PermissionUpload:
 		return pc.canUpload(user)
 	case PermissionAdmin:
-		return pc.canAdmin(user)
+		// An API token never carries admin rights, whoever owns it.
+		return GetToken(r) == nil && pc.canAdmin(user)
+	case PermissionReview:
+		// Review is a human act: a token never carries it either.
+		return GetToken(r) == nil && pc.canReview(user)
 	default:
 		return false
 	}
@@ -194,18 +210,21 @@ func (pc *PermissionChecker) canAdmin(user *User) bool {
 	return user.Admin()
 }
 
+// canReview checks if the user may approve code. Unlike read and write it is
+// never open to anonymous or merely registered users.
+func (pc *PermissionChecker) canReview(user *User) bool {
+	return (user.Approved() && user.CanReview()) || user.Admin()
+}
+
 // handleUnauthorized handles unauthorized access.
 func (pc *PermissionChecker) handleUnauthorized(w http.ResponseWriter, r *http.Request, permission string) {
 	user := GetUser(r)
 
 	if isAPIRequest(r) {
-		w.Header().Set("Content-Type", "application/json")
 		if user.IsAnonymous() {
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]string{"error": "authentication required"})
+			writeAPIError(w, http.StatusUnauthorized, "authentication required")
 		} else {
-			w.WriteHeader(http.StatusForbidden)
-			json.NewEncoder(w).Encode(map[string]string{"error": "insufficient permissions"})
+			writeAPIError(w, http.StatusForbidden, "insufficient permissions")
 		}
 		return
 	}
@@ -218,6 +237,13 @@ func (pc *PermissionChecker) handleUnauthorized(w http.ResponseWriter, r *http.R
 
 	// Logged in but not authorized - show 403
 	http.Error(w, "Forbidden: insufficient permissions", http.StatusForbidden)
+}
+
+// writeAPIError writes a JSON API error envelope.
+func writeAPIError(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]string{"error": message})
 }
 
 // isAPIRequest checks if the request is for the JSON API.

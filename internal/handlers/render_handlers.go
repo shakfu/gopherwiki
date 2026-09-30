@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"html"
 	"log/slog"
@@ -8,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/sa/gopherwiki/internal/middleware"
 	"github.com/sa/gopherwiki/internal/quarto"
 	"github.com/sa/gopherwiki/internal/wiki"
 )
@@ -78,6 +81,14 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if approved, err := s.codeApproved(r, page); err != nil {
+		s.renderError(w, r, http.StatusInternalServerError, "Failed to check code approval")
+		return
+	} else if !approved {
+		s.renderError(w, r, http.StatusForbidden, "A reviewer must approve this page's source before it can render")
+		return
+	}
+
 	in := quarto.Input{
 		Pagepath:       page.Pagepath,
 		Source:         page.Content,
@@ -92,6 +103,58 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 
 	s.SessionManager.AddFlashMessage(w, r, "success", "Page rendered successfully")
 	http.Redirect(w, r, "/"+page.Pagepath, http.StatusFound)
+}
+
+// codeHash identifies a page source for approval. It covers the whole source:
+// prose can hold inline expressions and raw HTML, so the executable part cannot
+// be separated reliably.
+func codeHash(source string) string {
+	sum := sha256.Sum256([]byte(source))
+	return hex.EncodeToString(sum[:])
+}
+
+// codeApproved reports whether the page's current source may render. It is
+// always true unless RENDER_APPROVAL_REQUIRED is set.
+func (s *Server) codeApproved(r *http.Request, page *wiki.Page) (bool, error) {
+	if !s.Config.RenderApproval {
+		return true, nil
+	}
+	return s.DB.Queries.IsCodeApproved(r.Context(), codeHash(page.Content))
+}
+
+// handleApprove records a reviewer's approval of a computational page's
+// source. The form carries the hash of the source the reviewer was shown; a
+// mismatch means the page changed in between, and nothing is approved.
+func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
+	path := chi.URLParam(r, "path")
+	page, err := wiki.NewPage(s.Storage, s.Config, path, "")
+	if err != nil {
+		s.renderError(w, r, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !page.Exists {
+		s.renderNotFound(w, r, page)
+		return
+	}
+	if !page.IsComputational {
+		s.renderError(w, r, http.StatusBadRequest, "This page is not a computational page")
+		return
+	}
+
+	hash := codeHash(page.Content)
+	if r.FormValue("hash") != hash {
+		s.renderError(w, r, http.StatusConflict, "The page changed after you opened it. Review the current source and approve again.")
+		return
+	}
+
+	if err := s.DB.Queries.ApproveCode(r.Context(), hash, middleware.GetUser(r).GetEmail()); err != nil {
+		s.renderError(w, r, http.StatusInternalServerError, "Failed to record approval")
+		return
+	}
+	slog.Info("code approved", "page", page.Pagepath, "hash", hash, "by", middleware.GetUser(r).GetEmail())
+
+	s.SessionManager.AddFlashMessage(w, r, "success", "Source approved")
+	http.Redirect(w, r, "/"+page.Pagepath+"/source", http.StatusFound)
 }
 
 // handleRendered serves the cached, self-contained HTML for a computational

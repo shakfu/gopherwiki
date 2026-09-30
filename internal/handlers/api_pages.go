@@ -2,9 +2,12 @@ package handlers
 
 import (
 	"net/http"
+	"path"
 	"strings"
 
+	"github.com/sa/gopherwiki/internal/middleware"
 	"github.com/sa/gopherwiki/internal/storage"
+	"github.com/sa/gopherwiki/internal/util"
 	"github.com/sa/gopherwiki/internal/wiki"
 )
 
@@ -101,6 +104,24 @@ func (s *Server) handleAPIPageSave(w http.ResponseWriter, r *http.Request, pageP
 		return
 	}
 
+	if token := middleware.GetToken(r); token != nil {
+		page, err := wiki.NewPage(s.Storage, s.Config, pagePath, "")
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "failed to load page")
+			return
+		}
+		if !underPrefix(token.WritePrefix, page.Filename) {
+			writeJSONError(w, http.StatusForbidden, "token may not write outside its prefix")
+			return
+		}
+		// Without a base revision SavePage skips conflict detection, which
+		// would let a token overwrite an edit it has never read.
+		if page.Exists && input.Revision == "" {
+			writeJSONError(w, http.StatusPreconditionRequired, "revision required to overwrite an existing page")
+			return
+		}
+	}
+
 	author := s.getAuthor(r)
 
 	result, err := s.Wiki.SavePage(r.Context(), pagePath, input.Content, input.Message, input.Revision, author)
@@ -128,8 +149,23 @@ func (s *Server) handleAPIPageSave(w http.ResponseWriter, r *http.Request, pageP
 	writeJSON(w, status, pageToAPI(updated))
 }
 
+// underPrefix reports whether a page file lies under a token's write prefix.
+// The filename is cleaned first so "prefix/../other" does not match.
+func underPrefix(prefix, filename string) bool {
+	if prefix == "" {
+		return false
+	}
+	pagepath := util.StripMarkdownExtension(path.Clean(filename))
+	return pagepath == prefix || strings.HasPrefix(pagepath, prefix+"/")
+}
+
 // handleAPIPageDelete handles DELETE /api/v1/pages/{path} -- delete page.
 func (s *Server) handleAPIPageDelete(w http.ResponseWriter, r *http.Request, pagePath string) {
+	if middleware.GetToken(r) != nil {
+		writeJSONError(w, http.StatusForbidden, "tokens may not delete pages")
+		return
+	}
+
 	author := s.getAuthor(r)
 
 	if err := s.Wiki.DeletePage(r.Context(), pagePath, "", author); err != nil {

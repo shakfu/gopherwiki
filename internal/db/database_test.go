@@ -60,9 +60,9 @@ func TestSchemaVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion failed: %v", err)
 	}
-	// Should be at the latest migration version (currently 6)
-	if version != 6 {
-		t.Errorf("SchemaVersion = %d, want 6", version)
+	// Should be at the latest migration version (currently 9)
+	if version != 9 {
+		t.Errorf("SchemaVersion = %d, want 9", version)
 	}
 }
 
@@ -79,8 +79,8 @@ func TestMigrateIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion failed: %v", err)
 	}
-	if version != 6 {
-		t.Errorf("SchemaVersion after re-migrate = %d, want 6", version)
+	if version != 9 {
+		t.Errorf("SchemaVersion after re-migrate = %d, want 9", version)
 	}
 }
 
@@ -89,7 +89,7 @@ func TestMigrateCreatesExpectedTables(t *testing.T) {
 	ctx := context.Background()
 
 	// Verify migration-created tables exist
-	migrationTables := []string{"page_fts", "page_links", "schema_version"}
+	migrationTables := []string{"page_fts", "page_links", "api_tokens", "code_approvals", "schema_version"}
 	for _, table := range migrationTables {
 		var count int
 		err := database.Conn().QueryRowContext(ctx,

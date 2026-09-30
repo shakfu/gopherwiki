@@ -190,9 +190,9 @@ func (q *Queries) CreateIssueComment(ctx context.Context, arg CreateIssueComment
 const createUser = `-- name: CreateUser :one
 INSERT INTO user (
     name, email, password_hash, first_seen, last_seen,
-    is_approved, is_admin, email_confirmed, allow_read, allow_write, allow_upload
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, name, email, password_hash, first_seen, last_seen, is_approved, is_admin, email_confirmed, allow_read, allow_write, allow_upload
+    is_approved, is_admin, email_confirmed, allow_read, allow_write, allow_upload, allow_review
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, name, email, password_hash, first_seen, last_seen, is_approved, is_admin, email_confirmed, allow_read, allow_write, allow_upload, allow_review
 `
 
 type CreateUserParams struct {
@@ -207,6 +207,7 @@ type CreateUserParams struct {
 	AllowRead      sql.NullBool   `json:"allow_read"`
 	AllowWrite     sql.NullBool   `json:"allow_write"`
 	AllowUpload    sql.NullBool   `json:"allow_upload"`
+	AllowReview    sql.NullBool   `json:"allow_review"`
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, error) {
@@ -222,6 +223,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		arg.AllowRead,
 		arg.AllowWrite,
 		arg.AllowUpload,
+		arg.AllowReview,
 	)
 	var i User
 	err := row.Scan(
@@ -237,6 +239,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.AllowRead,
 		&i.AllowWrite,
 		&i.AllowUpload,
+		&i.AllowReview,
 	)
 	return i, err
 }
@@ -442,7 +445,7 @@ func (q *Queries) GetPreference(ctx context.Context, name string) (Preference, e
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, name, email, password_hash, first_seen, last_seen, is_approved, is_admin, email_confirmed, allow_read, allow_write, allow_upload FROM user WHERE email = ? LIMIT 1
+SELECT id, name, email, password_hash, first_seen, last_seen, is_approved, is_admin, email_confirmed, allow_read, allow_write, allow_upload, allow_review FROM user WHERE email = ? LIMIT 1
 `
 
 func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
@@ -461,13 +464,14 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.AllowRead,
 		&i.AllowWrite,
 		&i.AllowUpload,
+		&i.AllowReview,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
 
-SELECT id, name, email, password_hash, first_seen, last_seen, is_approved, is_admin, email_confirmed, allow_read, allow_write, allow_upload FROM user WHERE id = ? LIMIT 1
+SELECT id, name, email, password_hash, first_seen, last_seen, is_approved, is_admin, email_confirmed, allow_read, allow_write, allow_upload, allow_review FROM user WHERE id = ? LIMIT 1
 `
 
 // User queries
@@ -487,6 +491,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id int64) (User, error) {
 		&i.AllowRead,
 		&i.AllowWrite,
 		&i.AllowUpload,
+		&i.AllowReview,
 	)
 	return i, err
 }
@@ -774,7 +779,7 @@ func (q *Queries) ListPreferences(ctx context.Context) ([]Preference, error) {
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, name, email, password_hash, first_seen, last_seen, is_approved, is_admin, email_confirmed, allow_read, allow_write, allow_upload FROM user ORDER BY name
+SELECT id, name, email, password_hash, first_seen, last_seen, is_approved, is_admin, email_confirmed, allow_read, allow_write, allow_upload, allow_review FROM user ORDER BY name
 `
 
 func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
@@ -799,6 +804,7 @@ func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
 			&i.AllowRead,
 			&i.AllowWrite,
 			&i.AllowUpload,
+			&i.AllowReview,
 		); err != nil {
 			return nil, err
 		}
@@ -898,7 +904,8 @@ UPDATE user SET
     email_confirmed = ?,
     allow_read = ?,
     allow_write = ?,
-    allow_upload = ?
+    allow_upload = ?,
+    allow_review = ?
 WHERE id = ?
 `
 
@@ -913,6 +920,7 @@ type UpdateUserParams struct {
 	AllowRead      sql.NullBool   `json:"allow_read"`
 	AllowWrite     sql.NullBool   `json:"allow_write"`
 	AllowUpload    sql.NullBool   `json:"allow_upload"`
+	AllowReview    sql.NullBool   `json:"allow_review"`
 	ID             int64          `json:"id"`
 }
 
@@ -928,6 +936,7 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) error {
 		arg.AllowRead,
 		arg.AllowWrite,
 		arg.AllowUpload,
+		arg.AllowReview,
 		arg.ID,
 	)
 	return err

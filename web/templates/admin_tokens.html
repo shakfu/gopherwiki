@@ -1,0 +1,85 @@
+{{define "generic_content"}}
+<h1>API Tokens</h1>
+
+<p><a href="/-/admin" class="btn btn-secondary btn-sm">Back to Dashboard</a></p>
+
+{{if .flashes}}
+{{range .flashes}}
+<div class="alert alert-{{if .Category}}{{.Category}}{{else}}info{{end}}" role="alert">
+    {{if .Message}}{{.Message}}{{else}}{{.}}{{end}}
+</div>
+{{end}}
+{{end}}
+
+{{if .new_token}}
+<div class="alert alert-success" role="alert">
+    <p>Token created. Copy it now; it is not shown again.</p>
+    <code>{{.new_token}}</code>
+</div>
+{{end}}
+
+<p>A token authenticates JSON API requests as its user. It may write pages only under its prefix, and it never has admin rights.</p>
+
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>Label</th>
+            <th>User</th>
+            <th>Write prefix</th>
+            <th>Created</th>
+            <th>Last used</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .tokens}}
+        <tr>
+            <td>{{.Label}}</td>
+            <td>{{.UserName}}</td>
+            <td><code>{{.WritePrefix}}</code></td>
+            <td>{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+            <td>{{if .LastUsedAt.Valid}}{{.LastUsedAt.Time.Format "2006-01-02 15:04"}}{{else}}Never{{end}}</td>
+            <td>
+                <form action="/-/admin/tokens/{{.ID}}/delete" method="post">
+{{template "csrfField" $.csrf_token}}
+                    <button type="submit" class="btn btn-sm btn-danger">Revoke</button>
+                </form>
+            </td>
+        </tr>
+        {{else}}
+        <tr><td colspan="6">No tokens.</td></tr>
+        {{end}}
+    </tbody>
+</table>
+
+<div class="card">
+    <div class="card-body">
+        <h5 class="card-title">New token</h5>
+        <form action="/-/admin/tokens" method="post">
+{{template "csrfField" $.csrf_token}}
+            <div class="form-group">
+                <label for="user_id">User</label>
+                <select name="user_id" id="user_id" class="form-control" required>
+                    {{range .users}}
+                    <option value="{{.ID}}">{{.GetName}} ({{.GetEmail}})</option>
+                    {{end}}
+                </select>
+                <small class="form-text text-muted">Commits made with the token are authored by this user.</small>
+            </div>
+
+            <div class="form-group">
+                <label for="label">Label</label>
+                <input type="text" name="label" id="label" class="form-control" required>
+            </div>
+
+            <div class="form-group">
+                <label for="write_prefix">Write prefix</label>
+                <input type="text" name="write_prefix" id="write_prefix" class="form-control" placeholder="kb" required>
+                <small class="form-text text-muted">The token may create and update pages at this path and below it.</small>
+            </div>
+
+            <button type="submit" class="btn btn-primary">Create token</button>
+        </form>
+    </div>
+</div>
+{{end}}

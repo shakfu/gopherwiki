@@ -214,6 +214,7 @@ func (a *Auth) UpdatePassword(ctx context.Context, userID int64, newPassword str
 		AllowRead:      user.CanRead(),
 		AllowWrite:     user.CanWrite(),
 		AllowUpload:    user.CanUpload(),
+		AllowReview:    user.CanReview(),
 	}
 
 	return a.queries.UpdateUser(ctx, params.ToDBParams())
@@ -246,6 +247,7 @@ func (a *Auth) UpdateUserName(ctx context.Context, userID int64, name string) er
 		AllowRead:      user.CanRead(),
 		AllowWrite:     user.CanWrite(),
 		AllowUpload:    user.CanUpload(),
+		AllowReview:    user.CanReview(),
 	}
 
 	return a.queries.UpdateUser(ctx, params.ToDBParams())

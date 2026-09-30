@@ -51,7 +51,7 @@
         <span aria-hidden="true">&times;</span>
       </a>
       <h5 class="modal-title">Save {{.pagename}}</h5>
-      <form id="saveform" action="/{{.pagepath}}/save" method="post" autocomplete="off">
+      <form id="saveform" action="/{{.save_path}}/save" method="post" autocomplete="off">
 {{template "csrfField" $.csrf_token}}
       <input id="save_content" type="hidden" name="content" value="">
       <input id="save_revision" type="hidden" name="revision" value="">

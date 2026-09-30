@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"path"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/sa/gopherwiki/internal/db"
 	"github.com/sa/gopherwiki/internal/middleware"
+	"github.com/sa/gopherwiki/internal/util"
 )
 
 // requireAdmin is a helper that checks admin access and redirects if not authorized.
@@ -123,6 +125,7 @@ func (s *Server) handleAdminUserSave(w http.ResponseWriter, r *http.Request) {
 	allowRead := r.FormValue("allow_read") == "on"
 	allowWrite := r.FormValue("allow_write") == "on"
 	allowUpload := r.FormValue("allow_upload") == "on"
+	allowReview := r.FormValue("allow_review") == "on"
 
 	params := db.UpdateUserParams{
 		ID:             id,
@@ -135,6 +138,7 @@ func (s *Server) handleAdminUserSave(w http.ResponseWriter, r *http.Request) {
 		AllowRead:      db.NullBool(allowRead),
 		AllowWrite:     db.NullBool(allowWrite),
 		AllowUpload:    db.NullBool(allowUpload),
+		AllowReview:    db.NullBool(allowReview),
 	}
 
 	if err := s.DB.Queries.UpdateUser(r.Context(), params); err != nil {
@@ -175,6 +179,86 @@ func (s *Server) handleAdminUserDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, "/-/admin/users", http.StatusFound)
+}
+
+// handleAdminTokens handles the API token list page.
+func (s *Server) handleAdminTokens(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	s.renderAdminTokens(w, r, "")
+}
+
+// renderAdminTokens renders the token list. newToken, when set, is the
+// plaintext of a token created by this request; it is shown once.
+func (s *Server) renderAdminTokens(w http.ResponseWriter, r *http.Request, newToken string) {
+	tokens, err := s.DB.Queries.ListAPITokens(r.Context())
+	if err != nil {
+		s.renderError(w, r, http.StatusInternalServerError, "Failed to list tokens")
+		return
+	}
+	users, err := s.Auth.ListUsers(r.Context())
+	if err != nil {
+		s.renderError(w, r, http.StatusInternalServerError, "Failed to list users")
+		return
+	}
+
+	data := NewGenericData("API Tokens")
+	data["tokens"] = tokens
+	data["users"] = users
+	data["new_token"] = newToken
+	s.renderTemplate(w, r, "admin_tokens.html", data)
+}
+
+// handleAdminTokenCreate handles creating an API token.
+func (s *Server) handleAdminTokenCreate(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+
+	userID, err := parseInt64(r.FormValue("user_id"))
+	label := strings.TrimSpace(r.FormValue("label"))
+	prefix := util.SanitizePagename(r.FormValue("write_prefix"), true)
+	// Page files are lowercased unless case is retained; the prefix must
+	// match them exactly.
+	if !s.Config.RetainPageNameCase {
+		prefix = strings.ToLower(prefix)
+	}
+	if err != nil || label == "" || prefix == "" || path.Clean(prefix) != prefix || strings.HasPrefix(prefix, "..") {
+		s.SessionManager.AddFlashMessage(w, r, "danger", "A user, a label and a valid write prefix are required")
+		http.Redirect(w, r, "/-/admin/tokens", http.StatusFound)
+		return
+	}
+
+	token, err := s.DB.Queries.CreateAPIToken(r.Context(), userID, label, prefix)
+	if err != nil {
+		s.SessionManager.AddFlashMessage(w, r, "danger", "Failed to create token")
+		http.Redirect(w, r, "/-/admin/tokens", http.StatusFound)
+		return
+	}
+
+	// Rendered directly, not redirected, so the plaintext never enters a cookie.
+	s.renderAdminTokens(w, r, token)
+}
+
+// handleAdminTokenDelete handles revoking an API token.
+func (s *Server) handleAdminTokenDelete(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+
+	id, err := parseInt64(chi.URLParam(r, "id"))
+	if err != nil {
+		s.renderError(w, r, http.StatusBadRequest, "Invalid token ID")
+		return
+	}
+
+	if err := s.DB.Queries.DeleteAPIToken(r.Context(), id); err != nil {
+		s.SessionManager.AddFlashMessage(w, r, "danger", "Failed to revoke token")
+	} else {
+		s.SessionManager.AddFlashMessage(w, r, "success", "Token revoked")
+	}
+	http.Redirect(w, r, "/-/admin/tokens", http.StatusFound)
 }
 
 // handleAdminSettings handles the admin settings page.

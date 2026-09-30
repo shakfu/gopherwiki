@@ -240,6 +240,17 @@ Invariants enforced in code (not left to flags):
 
 - Render never inherits application secrets via environment.
 
+### 7.1 Code approval
+
+`RENDER_APPROVAL_REQUIRED=true` narrows the trusted group from every editor to the users with the review permission. It is off by default.
+
+- A `.qmd` page renders only when a reviewer has approved the SHA-256 of its whole source. Any edit changes the hash and needs a new approval.
+- A reviewer approves from the page's source view (`/{path}/source`). The form carries the hash of the source shown; if the page changed meanwhile, nothing is approved.
+- The review permission is a per-user flag (`Can Review` in the admin user form). Admins have it implicitly. An API token never has it.
+- A user with write permission may render an approved source.
+
+This does not sandbox anything. An approved page still runs with the render process's privileges.
+
 ---
 
 ## 8. Relationship to existing backlog

@@ -262,3 +262,32 @@ func TestPageComputationalFrontmatterExposed(t *testing.T) {
 		t.Errorf("Pagename = %q, want %q", page.Pagename, "Analysis")
 	}
 }
+
+func TestNewPageQmdSuffixCreatesComputationalPage(t *testing.T) {
+	store, cfg := setupPageStore(t)
+
+	page, err := NewPage(store, cfg, "reports/August.qmd", "")
+	if err != nil {
+		t.Fatalf("NewPage: %v", err)
+	}
+	if page.Exists {
+		t.Fatal("page should not exist yet")
+	}
+	if page.Filename != "reports/august.qmd" || !page.IsComputational || page.Pagepath != "reports/August" {
+		t.Errorf("Filename = %q, IsComputational = %v, Pagepath = %q; want reports/august.qmd, true, reports/August",
+			page.Filename, page.IsComputational, page.Pagepath)
+	}
+}
+
+func TestNewPageQmdSuffixDoesNotOverrideExistingMarkdown(t *testing.T) {
+	store, cfg := setupPageStore(t)
+	store.Store("notes.md", "# Notes\n", "create", testAuthor)
+
+	page, err := NewPage(store, cfg, "notes.qmd", "")
+	if err != nil {
+		t.Fatalf("NewPage: %v", err)
+	}
+	if page.Filename != "notes.md" || page.IsComputational {
+		t.Errorf("Filename = %q, IsComputational = %v; want the existing notes.md", page.Filename, page.IsComputational)
+	}
+}

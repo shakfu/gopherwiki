@@ -5,10 +5,13 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
+	"database/sql"
 	"encoding/base64"
 	"encoding/gob"
+	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/gorilla/sessions"
 
@@ -34,6 +37,8 @@ const (
 	FlashKey contextKey = "flash"
 	// CSRFContextKey is the context key for the current CSRF token.
 	CSRFContextKey contextKey = "csrf"
+	// TokenKey is the context key for the API token that authenticated the request.
+	TokenKey contextKey = "token"
 )
 
 const (
@@ -158,6 +163,49 @@ func (sm *SessionManager) Middleware(next http.Handler) http.Handler {
 	})
 }
 
+// TokenAuth authenticates JSON API requests that carry a bearer token. The
+// token's user replaces the session user. The header is ignored outside the
+// API, so a token cannot reach form endpoints such as render or upload. It
+// must run after Middleware and before CSRFProtect.
+func (sm *SessionManager) TokenAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		bearer, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if !ok || !isAPIRequest(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		token, err := sm.queries.GetAPIToken(r.Context(), bearer)
+		var dbUser db.User
+		if err == nil {
+			dbUser, err = sm.queries.GetUserByID(r.Context(), token.UserID)
+		}
+		if errors.Is(err, sql.ErrNoRows) {
+			writeAPIError(w, http.StatusUnauthorized, "invalid token")
+			return
+		}
+		if err != nil {
+			slog.Error("token lookup failed", "error", err)
+			writeAPIError(w, http.StatusInternalServerError, "token lookup failed")
+			return
+		}
+		if err := sm.queries.TouchAPIToken(r.Context(), token.ID); err != nil {
+			slog.Warn("failed to record token use", "error", err)
+		}
+
+		ctx := context.WithValue(r.Context(), UserKey, models.NewUser(&dbUser))
+		ctx = context.WithValue(ctx, TokenKey, &token)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// GetToken returns the API token that authenticated the request, or nil for a
+// session or anonymous request.
+func GetToken(r *http.Request) *db.APIToken {
+	token, _ := r.Context().Value(TokenKey).(*db.APIToken)
+	return token
+}
+
 // GetCSRFToken returns the CSRF token for the current request, or "".
 func GetCSRFToken(r *http.Request) string {
 	if t, ok := r.Context().Value(CSRFContextKey).(string); ok {
@@ -170,9 +218,11 @@ func GetCSRFToken(r *http.Request) string {
 // not present the session's CSRF token, supplied either in the CSRFFieldName
 // form field or the CSRFHeaderName header. It must run after Middleware so the
 // token is present in the request context. Comparison is constant-time.
+// A request authenticated by an API token is exempt: it does not rely on a
+// cookie, so a forged cross-site request cannot carry its credential.
 func (sm *SessionManager) CSRFProtect(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if csrfSafeMethods[r.Method] {
+		if csrfSafeMethods[r.Method] || GetToken(r) != nil {
 			next.ServeHTTP(w, r)
 			return
 		}
