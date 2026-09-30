@@ -12,6 +12,8 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 
 - **Code approval for computational pages**: With `RENDER_APPROVAL_REQUIRED=true`, a `.qmd` page renders only after a user with the new review permission approves the hash of its source; any edit needs a new approval. Without the setting, any editor can render, as before. The approval covers the whole source because prose can hold inline expressions and raw HTML. The source view now has Approve and Render buttons. See `docs/computational-pages.md` section 7.1.
 
+- **MCP server**: `/-/api/v1/mcp` serves the Model Context Protocol over Streamable HTTP, so an agent can connect with an API token. Its tools (search, read and write pages, read report runs, lint, open issues, and a guide) call the JSON API in-process, so token rules, permissions and hidden pages apply unchanged. The guide includes the page named by `GUIDE_PAGE` (default `Meta/Schema`) as the wiki's conventions for agents. It is hand-written on `net/http` rather than an SDK: stateless, one JSON reply per request, no SSE. See `docs/API.md`.
+
 - **Batch save**: `POST /-/api/v1/batch` saves up to 100 pages in one commit, so one agent run is one revert. Every page is checked before anything is written; one failing page fails the batch. If the commit fails, the written files are restored. See `docs/API.md`.
 
 - **Lint**: `/-/lint` and `GET /-/api/v1/lint` list broken wikilinks and orphan pages, and for agent pages: missing validation, missing or superseded cited runs, and numbers in the prose that occur in none of the cited runs. The number check compares values, so formatting differences do not count; a derived figure such as a growth rate is reported for the validator to check. See `docs/dev/llm-wiki.md`.
@@ -33,6 +35,8 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - **Frontmatter parsing**: Leading YAML frontmatter is parsed and its `title` is used for the page title and search index.
 
 ### Fixed
+
+- **Backlinks on mixed-case URLs**: "What links here" was empty when a page was opened with capitals in its URL, such as `/Home`. Link targets are stored lowercased, but the lookup used the path as typed.
 
 - **Saving unchanged content**: Saving a page without changes failed with "cannot create empty commit". go-git's `Status.File` reports an unchanged tracked file as untracked, so the no-change check never matched.
 

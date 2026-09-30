@@ -74,6 +74,9 @@ type Server struct {
 	// placeholder.
 	RenderService RenderService
 
+	// router is the handler built by Routes, used for in-process API calls.
+	router http.Handler
+
 	// Site settings cache
 	ssMu       sync.RWMutex
 	ssCache    *SiteSettings

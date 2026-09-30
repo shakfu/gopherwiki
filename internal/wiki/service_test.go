@@ -494,6 +494,16 @@ func TestBacklinks(t *testing.T) {
 		}
 	})
 
+	t.Run("lookup ignores the case of the page path", func(t *testing.T) {
+		backlinks, err := ws.Backlinks(ctx, "About")
+		if err != nil {
+			t.Fatalf("Backlinks returned error: %v", err)
+		}
+		if len(backlinks) != 2 {
+			t.Errorf("Expected 2 backlinks for 'About', got %v", backlinks)
+		}
+	})
+
 	t.Run("backlinks for guide", func(t *testing.T) {
 		backlinks, err := ws.Backlinks(ctx, "guide")
 		if err != nil {

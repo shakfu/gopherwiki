@@ -185,6 +185,7 @@ func (s *Server) Routes() chi.Router {
 				r.Get("/search", s.handleAPISearch)
 				r.Get("/changelog", s.handleAPIChangelog)
 				r.Get("/lint", s.handleAPILint)
+				r.HandleFunc("/mcp", s.handleMCP)
 				r.Get("/issues", s.handleAPIIssueList)
 				r.Get("/issues/{id}", s.handleAPIIssueGet)
 				r.Get("/issues/{id}/comments", s.handleAPIIssueComments)
@@ -226,6 +227,7 @@ func (s *Server) Routes() chi.Router {
 		s.dispatchPage(w, r, actions)
 	})
 
+	s.router = r
 	return r
 }
 

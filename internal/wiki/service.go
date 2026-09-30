@@ -173,7 +173,13 @@ func (ws *WikiService) Backlinks(ctx context.Context, pagepath string) ([]string
 	if ws.db == nil {
 		return nil, nil
 	}
-	return ws.db.GetBacklinks(ctx, pagepath)
+	// Link targets are stored normalized (see renderer.ExtractWikiLinks), so
+	// "/Home" must look up "home".
+	target := strings.ReplaceAll(pagepath, " ", "-")
+	if !ws.config.RetainPageNameCase {
+		target = strings.ToLower(target)
+	}
+	return ws.db.GetBacklinks(ctx, target)
 }
 
 // IndexPage adds or updates a page in the FTS5 search index and page links.

@@ -9,6 +9,23 @@ All endpoints are under `/-/api/v1/`. Responses use a JSON envelope:
 
 Authentication uses the same session cookies as the web UI, or an API token. API requests that fail authentication receive JSON 401/403 responses instead of HTML redirects.
 
+## MCP
+
+```text
+POST /-/api/v1/mcp
+```
+
+An MCP (Model Context Protocol) server over the Streamable HTTP transport, for agents. Authenticate with an API token. For example, in Claude Code:
+
+```text
+claude mcp add --transport http gopherwiki https://wiki.example.com/-/api/v1/mcp --header "Authorization: Bearer gw_..."
+```
+
+- Tools: `guide`, `search`, `read_page`, `write_pages`, `list_runs`, `read_run`, `backlinks`, `lint`, `changelog`, `open_issue`. Each calls the JSON API below with the same credentials, so the same rules apply; an API error reaches the model as a tool error.
+- `guide` explains the conventions for agents, then returns the page named by `GUIDE_PAGE` (default `Meta/Schema`) and the page list.
+- The server is stateless. It answers each request with one JSON object; `GET` returns `405`. It supports protocol versions `2025-11-25`, `2025-06-18` and `2025-03-26`.
+- A request with an `Origin` header other than the site's is rejected with `403`.
+
 ## API tokens
 
 An admin creates and revokes tokens at `/-/admin/tokens`. The token is shown once. Send it as a bearer credential:

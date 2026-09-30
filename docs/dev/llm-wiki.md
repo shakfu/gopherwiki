@@ -150,11 +150,20 @@ reused: it commits files written earlier, outside the storage lock. The new
 `StoreFiles` writes and commits under one lock and restores the files if the
 commit fails.
 
-### 7. MCP adapter and guide page
+### 7. MCP adapter and guide page (implemented)
 
-`/-/mcp` wraps the endpoints above: guide, search, read, rendered, write,
-backlinks, lint, changelog. The guide tool returns a wiki page holding the
-conventions (for example `Meta/Schema`) plus the page index.
+`/-/api/v1/mcp` serves MCP over Streamable HTTP. Usage is in `docs/API.md`.
+
+- Tools: guide, search, read_page, write_pages, list_runs, read_run,
+  backlinks, lint, changelog, open_issue.
+- Each tool calls the JSON API in-process with the caller's credentials, so
+  token rules, permissions and hidden pages apply unchanged.
+- The guide tool returns the mechanics (write prefix, revisions, validation,
+  citing runs, proposing reports), then the page named by `GUIDE_PAGE`
+  (default `Meta/Schema`) as the wiki's conventions, then the page list.
+- Hand-written JSON-RPC over `net/http`, not an SDK: the server is stateless,
+  answers each request with one JSON object, and offers no SSE stream or
+  sessions, which the transport allows.
 
 Two files from the gist are not needed. The git changelog replaces `log.md`.
 `PageIndex` replaces a hand-maintained `index.md`.

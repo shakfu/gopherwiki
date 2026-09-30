@@ -102,6 +102,7 @@ type Config struct {
 	RenderR           string // Pin the R interpreter for renders (-> QUARTO_R); "" = discover
 	RenderApproval    bool   // Require a reviewer to approve a .qmd page's source before it may render
 	HideUnvalidated   bool   // Hide agent-written pages from non-reviewers until their current revision is validated
+	GuidePage         string // Page whose content the MCP guide tool returns as the wiki's conventions
 	OJSLibsDir        string // Local mirror of the Observable JS libraries; when set, OJS pages load libs from the wiki (offline) instead of the CDNs
 }
 
@@ -174,6 +175,7 @@ func Default() *Config {
 		RenderPython:      "",
 		RenderR:           "",
 		OJSLibsDir:        "",
+		GuidePage:         "Meta/Schema",
 	}
 }
 
@@ -313,6 +315,7 @@ func (c *Config) LoadFromEnv() {
 	c.RenderR = getEnv("RENDER_R", c.RenderR)
 	c.RenderApproval = getEnvBool("RENDER_APPROVAL_REQUIRED", c.RenderApproval)
 	c.HideUnvalidated = getEnvBool("HIDE_UNVALIDATED", c.HideUnvalidated)
+	c.GuidePage = getEnv("GUIDE_PAGE", c.GuidePage)
 	c.OJSLibsDir = getEnv("OJS_LIBS_DIR", c.OJSLibsDir)
 }
 
